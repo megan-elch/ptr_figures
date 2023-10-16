@@ -1,6 +1,6 @@
 # source model functions
 source("scripts/model_functions.R")
-
+asdf
 obs_mrna_prot = function(prep_list){
   mrna = prep_list$mrna
   protein = prep_list$protein
