@@ -1,0 +1,276 @@
+---
+title: "PTR Testes Figures"
+author: "Megan Elcheikhali, Advised by Dr. Alex Franks"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(AnnotationDbi)
+library(org.Hs.eg.db)
+library(GO.db)
+library(tidyverse)
+library(patchwork)
+library(colorspace)
+library(viridis)
+source("scripts/plot_functions.R")
+source("scripts/go_functions.R")
+clusters = c("EC", "LC", "PTM", "SPC", "SPG", "St")
+```
+
+```{r fig1, echo = FALSE, warning = FALSE, fig.width = 20, fig.height = 20, cache = F, eval = F}
+# FIGURE 1: Across genes correlation within modalities
+# load previously computed across gene correlations
+load("model_output/m1_ag_cor.RData")
+cor_df_mrna = cor_df %>% mutate(pop = "mRNA Pop1")
+
+load("model_output/m2_ag_cor.RData")
+cor_df = cor_df %>% mutate(pop = "mRNA Pop2")
+cor_df_mrna = cor_df_mrna %>% rbind(cor_df)
+
+mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[c(2, 3)]
+m = plot_across_gene_correlations(cor_df_mrna, type_label = "mRNA", color_levels = mrna_colors, facet_col = 3) + ylab("") 
+
+load("model_output/p1_ag_cor.RData")
+cor_df_prot = cor_df %>% mutate(pop = "Protein Pop1")
+
+load("model_output/p2_ag_cor.RData")
+cor_df = cor_df %>% mutate(pop = "Protein Pop2")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p3_ag_cor.RData")
+cor_df = cor_df %>% mutate(pop = "Protein Pop3")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p4_ag_cor.RData")
+cor_df = cor_df %>% mutate(pop = "Protein Pop4")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[c(2:5)]
+p = plot_across_gene_correlations(cor_df_prot, type_label = "Protein", color_levels = protein_colors, facet_col = 3) + ylab("") 
+
+g = m / p + plot_layout(guides = "collect") & theme(legend.position = 'bottom', legend.key.size = unit(1, "cm"),
+                                          plot.title = element_text(size = 45), axis.title = element_text(size = 30), 
+                                          axis.text = element_text(size = 20))
+g + plot_annotation(
+  title = "Figure 1: Across Genes Correlation for mRNA, Protein Data Sets",
+  tag_levels = 'A') 
+```
+
+```{r fig2, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
+# FIGURE 2: Empirical Across Cluster Correlations
+# load previously computed correlations
+load("model_output/m1_m2_ac_cor.RData")
+mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[3]
+mu_colors = colorspace::sequential_hcl(5, palette = "Reds 3")[3]
+m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors) + 
+     ylab("") +
+     ggtitle("mRNA")
+
+load("model_output/p1_p2_ac_cor.RData")
+cor_df_prot = cor_df %>% mutate(pop = "P12")
+
+load("model_output/p1_p3_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "P13")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p1_p4_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "P14")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p2_p3_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "P23")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p2_p4_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "P24")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+load("model_output/p3_p4_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "P34")
+cor_df_prot = cor_df_prot %>% rbind(cor_df)
+
+cor_df_prot = cor_df_prot %>%
+              dplyr::group_by(UNIPROT) %>%
+              dplyr::summarise(cors = mean(cors, na.rm = T)) %>%
+              ungroup()
+
+protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[2]
+prot_colors = colorspace::sequential_hcl(5, palette = "Mako")[4]
+p1 = plot_across_clusters_correlation(cor_df_prot, color_select = protein_colors) + 
+     ylab("") +
+     ggtitle("Protein")
+
+load("model_output/m1_p1_ac_cor.RData")
+cor_df_multi = cor_df %>% mutate(pop = "m1p1")
+
+load("model_output/m2_p1_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m2p1")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m1_p2_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m1p2")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m2_p2_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m2p2")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m1_p3_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m1p3")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m2_p3_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m2p3")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m1_p4_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m1p4")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+load("model_output/m2_p4_ac_cor.RData")
+cor_df = cor_df %>% mutate(pop = "m2p4")
+cor_df_multi = cor_df_multi %>% rbind(cor_df)
+
+multi_colors = "purple" # colorspace::sequential_hcl(5, palette = "Mako")[2]
+mp = plot_across_clusters_correlation(cor_df_multi, color_select = "gray47") +
+     ggtitle("Across Modalities") + ylab("")
+
+p = (m1 + p1) / (mp)
+p +
+  plot_annotation(title = "Figure 1: Across Clusters Correlation for mRNA, Protein Data Sets",
+  tag_levels = 'A',
+  theme = theme(plot.title = element_text(size = 40))) & 
+  theme(axis.title = element_text(size = 40), axis.text = element_text(size = 40))
+```
+
+```{r fig3, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 17, fig.height = 25, cache = F}
+# FIGURE 3: Posterior Predictive Model Evaluations
+# load previously completed variance quantities
+load("model_output/mrna_ppc_var.RData")
+m1 = plot_mrna_ppc_variance(ppc_var_plot = mrna_variance_ppc, rescale = F) + theme(legend.position = "none")
+
+# load("model_output/protein_ppc_var.RData")
+# p1 = plot_protein_ppc_variance(ppc_var_plot = protein_variance_ppc)
+
+load("model_output/ppc_cor.RData")
+mp = draw_ppc_correlation_density(ppc_cor_obj, mrna_df = "Pop1")
+
+p = (m1) / (mp) + plot_layout(guides = "collect") 
+p + plot_annotation(title = "Figure 2: Posterior Predictive and Observed Statistics",
+  tag_levels = 'A', 
+  theme = theme(plot.title = element_text(size = 45))) & 
+  theme(legend.position = 'bottom', legend.key.size = unit(2, "cm"),
+        axis.title = element_text(size = 40),
+        axis.text = element_text(size = 30))
+```
+
+```{r fig4, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 50, cache = F}
+# FIGURE 4: Evaluating posterior samples of mu and r
+mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[3]
+protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[2]
+
+load("model_output/gene_res_centered.RData")
+m1 = plot_posterior_means(gene_res = gene_res) + theme(legend.position = "none")
+
+load("model_output/sig_intervals.RData")
+ct_select = "EC"
+uni_select = "P68104"
+p1 = plot_significant_intervals(sig_intervals = significant_intervals, gene_res = gene_res, 
+                                ct_select = ct_select, organism = "human", sig_color = multi_colors) 
+
+load("model_output/observed_z.RData")
+p2 = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
+                       gene_res = gene_res, uni = uni_select, 
+                       clusters = clusters, mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
+                       mrna_color = mrna_colors, protein_color = protein_colors) +
+     scale_color_manual(name = "", values = c(mrna_colors, protein_colors)) + xlab("")
+
+load("model_output/cor_comparison.RData")
+mp = plot_correlation_comparison_med(cor_comparison = cor_comparison) 
+p = wrap_elements(full = m1 + theme(axis.title = element_text(size = 70), axis.text = element_text(size = 60))) / 
+  (p1 + theme(axis.text.x = element_text(angle = 60, size = 37), 
+              axis.text.y = element_text(size = 50), 
+              axis.title.y = element_text(size = 50),
+              axis.title.x.bottom = element_text(size = 50)) + 
+     wrap_elements(full = p2 + theme(axis.text = element_text(size = 50), 
+                                     axis.title = element_text(size = 50),
+                                     legend.key.size = unit(1.5, "cm"),
+                                     legend.position = "bottom"))) / 
+  wrap_elements(full = mp + ggtitle("") + theme(axis.text = element_text(size = 80), 
+                                                axis.title = element_text(size = 80),
+                                                legend.key.size = unit(2, "cm")))
+p + 
+  plot_layout(guides = "collect") + 
+  plot_annotation(tag_levels = list(c("A", "B", "C", "D", "", "")),
+  title = "Figure 3: Evaluation of Posterior Samples and Genes with Significant rPTR",
+  theme = theme(plot.title = element_text(size = 65))) &
+  theme(plot.tag = element_text(size = 50))
+```
+
+```{r fig4.5, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 50, cache = F, eval = F}
+# FIGURE 4: Evaluating posterior samples of mu and r
+mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[c(2, 3)]
+protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[c(2:5)]
+
+load("model_output/gene_res_centered.RData")
+uni_select = gene_res %>% filter(significant == TRUE) %>% pull(UNIPROT) %>% unique()
+
+load("model_output/observed_z.RData")
+for(i in 1:length(uni_select)){
+  p2 = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
+                       gene_res = gene_res, uni = uni_select[i], 
+                       clusters = clusters, mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4")) +
+     scale_color_manual(name = "", values = c(mrna_colors, protein_colors)) + xlab("")
+
+  print(p2)
+}
+```
+
+```{r, fig.width = 35, fig.height = 50, echo = FALSE, warning = FALSE, message = FALSE, eval = FALSE}
+plot_fit_means(gene_res, param = "mu") / plot_fit_means(gene_res, param = "prot")
+```
+
+```{r fig5, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 24, eval = TRUE, cache = F}
+load("model_output/go_test_results_mean.RData")
+
+a = plot_go_means(test_res = test_res)
+b = plot_go_heatmap(test_res) + theme(axis.text = element_text(size = 35),
+                                      axis.title = element_text(size = 35),
+                                      legend.position  = "none")
+
+celltype_title = c("Endothelial Cells", "Leydig Cells", "Peritubular Myoid Cells", "Spermatocyte Cells", "Spermatagonia Cells", "Spermatids")
+
+load(paste0("model_output/GO_dat_", clusters[1], ".RData"))
+d = plot_ticks(GO_dat = GO_dat, gene_res = gene_res, selection1 = FALSE, 
+                    celltype = clusters[1], celltype_title = celltype_title[1])
+
+load(paste0("model_output/GO_dat_", clusters[4], ".RData"))
+f = plot_ticks(GO_dat = GO_dat, gene_res = gene_res, selection1 = FALSE, 
+                    celltype = clusters[4], celltype_title = celltype_title[4])
+
+design <- "
+  AABCCD
+  EEFGGH
+  EEFGGH
+  EEFGGH
+"
+
+q = (wrap_elements(full = a) + b) + 
+    plot_annotation(tag_levels = list(c("A", "B")), 
+                    title = "Figure 4: Evaluation of GO Groups with Significant rPTR",
+                    theme = theme(plot.title = element_text(size = 50))) &
+  theme(plot.tag = element_text(size = 50))
+  
+p = d[[1]][[1]] + d[[2]][[1]] + f[[1]][[1]] + f[[2]][[1]] + d[[1]][[2]] + d[[2]][[2]] + f[[1]][[2]] + f[[2]][[2]] +
+    plot_layout(design = design, guides = "collect") 
+p = p + plot_annotation(tag_levels = list(c("", "", "", "", "C", "", "D", ""))) &
+    theme(legend.position = "bottom", legend.key.size = unit(5, "cm"), plot.tag = element_text(size = 50))
+
+par(mfrow=c(2,1))
+q
+p
+```
