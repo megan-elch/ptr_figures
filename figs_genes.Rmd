@@ -28,24 +28,12 @@ cor_df_mrna = cor_df
 load("model_output/p1_p2_ac_cor.RData")
 cor_df_prot = cor_df %>% mutate(pop = "P12")
 
-load("model_output/p1_p3_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P13")
-cor_df_prot = cor_df_prot %>% rbind(cor_df)
-
 load("model_output/p1_p4_ac_cor.RData")
 cor_df = cor_df %>% mutate(pop = "P14")
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
-load("model_output/p2_p3_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P23")
-cor_df_prot = cor_df_prot %>% rbind(cor_df)
-
 load("model_output/p2_p4_ac_cor.RData")
 cor_df = cor_df %>% mutate(pop = "P24")
-cor_df_prot = cor_df_prot %>% rbind(cor_df)
-
-load("model_output/p3_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P34")
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
 cor_df_prot = cor_df_prot %>%
@@ -69,10 +57,6 @@ prot_var_df = var_df %>% mutate(pop = "p1")
 
 load("model_output/p2_var.RData")
 var_df = var_df %>% mutate(pop = "p2")
-prot_var_df = rbind(prot_var_df, var_df)
-
-load("model_output/p3_var.RData")
-var_df = var_df %>% mutate(pop = "p3")
 prot_var_df = rbind(prot_var_df, var_df)
 
 load("model_output/p4_var.RData")
@@ -129,9 +113,9 @@ for(i in 1:length(uni_select)){
  # colors_filter = rbind(mrna_colors, protein_colors[c(uni_select[i] %in% protein_pop1_z$UNIPROT, uni_select[i] %in% protein_pop2_z$UNIPROT, 
    #                 uni_select[i] %in% protein_pop3_z$UNIPROT, uni_select[i] %in% protein_pop4_z$UNIPROT),])
  p[[i]] = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
                        gene_res = gene_res, uni = uni_select[i], 
-                       clusters = clusters, mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
+                       clusters = clusters, mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
                        mrna_color = mrna_colors, protein_color = protein_colors) +
    xlab("")
      # scale_color_manual(name = "", values = c(mrna_colors, protein_colors)) 

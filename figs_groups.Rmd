@@ -47,17 +47,15 @@ protein_pop1_z = protein_pop1_z %>% merge(GO_rec) %>% dplyr::group_by(GO, ct) %>
   dplyr::summarise(protein_zscore = mean(protein_zscore, na.rm = T)) %>% merge(TERM_rec)
 protein_pop2_z = protein_pop2_z %>% merge(GO_rec) %>% dplyr::group_by(GO, ct) %>% 
   dplyr::summarise(protein_zscore = mean(protein_zscore, na.rm = T)) %>% merge(TERM_rec)
-protein_pop3_z = protein_pop3_z %>% merge(GO_rec) %>% dplyr::group_by(GO, ct) %>% 
-  dplyr::summarise(protein_zscore = mean(protein_zscore, na.rm = T)) %>% merge(TERM_rec)
 protein_pop4_z = protein_pop4_z %>% merge(GO_rec) %>% dplyr::group_by(GO, ct) %>% 
   dplyr::summarise(protein_zscore = mean(protein_zscore, na.rm = T)) %>% merge(TERM_rec)
 
 p = list()
 for(i in 1:length(go_select)){
  p[[i]] = plot_zscore_groups(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
                        test_res = test_res, go = go_select[i], clusters = clusters, 
-                       mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
+                       mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
                        mrna_color = mrna_colors, protein_color = protein_colors) +
    xlab("")
 }

@@ -277,8 +277,8 @@ plot_zscore_groups = function(mrna_z, protein_z, test_res,
     geom_path(data = protein_z[[2]][!is.na(protein_z[[2]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[2])) +
     geom_point(data = protein_z[[3]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
     geom_path(data = protein_z[[3]][!is.na(protein_z[[3]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[3])) +
-    geom_point(data = protein_z[[4]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[4]][!is.na(protein_z[[4]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[4])) +
+    # geom_point(data = protein_z[[4]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    # geom_path(data = protein_z[[4]][!is.na(protein_z[[4]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[4])) +
     ylab("Z Transformed Log2 GO Group, Cluster Average") +
     xlab("Cell Type") +
     scale_y_continuous(position = "right") +
