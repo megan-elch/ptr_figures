@@ -1,3 +1,4 @@
+# source model functions
 source("scripts/model_functions.R")
 
 obs_mrna_prot = function(prep_list){
