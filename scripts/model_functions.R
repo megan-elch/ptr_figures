@@ -1,6 +1,7 @@
 # function to compute necessary quantities to run model
 compute_suff_stats = function(df, df_info, type = "mRNA", clusters = NULL, pop_label = NULL, already_logged = T, protein_label = "prot", peptide_label = "pep", omit_zeros = FALSE){
   df_info = na.omit(df_info)
+  # select modality
   if(tolower(type) == "mrna"){
     df = df %>%
       as.matrix() %>%
@@ -62,6 +63,7 @@ compute_suff_stats = function(df, df_info, type = "mRNA", clusters = NULL, pop_l
   return(means)
 }
 
+# prepare data to be inputted into model
 model_prep = function(mrna_suff, protein_suff,
                       n_mrna = 2, n_protein = 2, min_ct = 3,
                       clusters, specific_genes = NULL){
@@ -70,14 +72,13 @@ model_prep = function(mrna_suff, protein_suff,
   protein_suff = protein_suff %>% mutate(pop_factor_protein = as.numeric(factor(pop_protein, levels = paste0("Pop", 1:n_protein))))
   mrna_suff = mrna_suff %>% mutate(pop_factor_mrna = as.numeric(factor(pop_mrna, levels = paste0("Pop", 1:n_mrna))))
 
+  # filter out genes with no observed transcripts for all cell types
   mrna_suff = na.omit(mrna_suff) %>%
     dplyr::group_by(SYMBOL, pop_mrna)  %>%
     dplyr::mutate(n_ct = length(unique(ct)), zero_all = sum(mrna_sum) == 0) %>%
     ungroup() %>%
     filter(n_ct >= min_ct & zero_all == FALSE) %>%
     dplyr::select(-c(n_ct, zero_all))
-
-  print(head(mrna_suff))
 
   mrna_cts = mrna_suff %>%
     dplyr::group_by(UNIPROT) %>%
@@ -144,6 +145,7 @@ model_prep = function(mrna_suff, protein_suff,
   list(mrna = mrna_suff_sample, protein = protein_suff_sample, gene_map = UNIPROT_map, clusters = clusters)
 }
 
+# run stan model
 run_model = function(prep_list, project_name, n_iter = 2000, n_warmup = 1000, n_chains = 5,
                      seed_id = 100, n_cores = 5, refresh = 100, init = 0){
 
