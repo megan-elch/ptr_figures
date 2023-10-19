@@ -285,13 +285,13 @@ plot_zscore_means = function(mrna_z, protein_z, gene_res,
     geom_path(data = protein_z[[3]][!is.na(protein_z[[3]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[3])) +
     # geom_point(data = protein_z[[4]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
     # geom_path(data = protein_z[[4]][!is.na(protein_z[[4]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[4])) +
-    ylab("Z Transformed Log2 Gene Product Cluster Level Average") +
+    ylab("Z Log2 Cluster Level Average") +
     xlab("Cell Type") +
     scale_y_continuous(position = "right") +
     scale_color_manual(name = "", values = c(mrna_color, protein_color)) +
     # scale_shape_manual(name = "Observed in Param Interval", values = c(4, 1)) +
     theme(text = element_text(size = 35),
-          axis.text = element_text(size = 30),
+          axis.text = element_text(size = 20),
           legend.key.size = unit(3, "cm"),
           legend.position = "top",
           legend.justification = "right",
