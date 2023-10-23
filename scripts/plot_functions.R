@@ -418,21 +418,42 @@ compute_across_clusters_correlations = function(mrna_z, protein_z, type = "multi
 }
 
 # plot histogram of across cell types correlation
-plot_across_clusters_correlation = function(cor_df, color_select = "gray"){
+plot_across_clusters_correlation = function(cor_df, color_select = "gray", group_ref = NULL){
   # vertical line at median
   cor_med = median(cor_df$cors)
 
-  g = ggplot(cor_df, aes(x = cors)) +
-    geom_histogram(bins = 50, fill = color_select, alpha = 0.5) +
-    geom_vline(xintercept = cor_med) +
-    xlab("Across Clusters Correlation") +
-    theme(text = element_text(size = 35),
-          axis.text = element_text(size = 22),
-          legend.key.size = unit(1.5, "cm"),
-          legend.position = "bottom",
-          panel.background = element_rect(fill = 'white', color = "slategray4"),
-          panel.grid.major = element_line(color = 'slategray2'),
-          panel.grid.minor = element_line(color = 'slategray1'))
+  if(!is.null(group_ref)){
+    cor_df = cor_df %>%
+      merge(group_ref) %>%
+      na.omit()
+    g = ggplot(cor_df, aes(x = cors)) +
+      geom_density(aes(color = var_group), alpha = 0.5) +
+      geom_vline(xintercept = cor_med) +
+      colorspace::scale_color_discrete_sequential(palette = "Viridis", name = "Protein Variance Group") +
+      xlab("Across Clusters Correlation") +
+      theme(text = element_text(size = 35),
+            axis.text = element_text(size = 22),
+            legend.key.size = unit(1.5, "cm"),
+            legend.position = "bottom",
+            panel.background = element_rect(fill = 'white', color = "slategray4"),
+            panel.grid.major = element_line(color = 'slategray2'),
+            panel.grid.minor = element_line(color = 'slategray1'))
+  }
+
+  if(is.null(group_ref)){
+    g = ggplot(cor_df, aes(x = cors)) +
+      geom_histogram(bins = 50, fill = color_select, alpha = 0.5) +
+      geom_vline(xintercept = cor_med) +
+      xlab("Across Clusters Correlation") +
+      theme(text = element_text(size = 35),
+            axis.text = element_text(size = 22),
+            legend.key.size = unit(1.5, "cm"),
+            legend.position = "bottom",
+            panel.background = element_rect(fill = 'white', color = "slategray4"),
+            panel.grid.major = element_line(color = 'slategray2'),
+            panel.grid.minor = element_line(color = 'slategray1'))
+  }
+  return(g)
 }
 
 # compute correlation across genes for all pairs of cells

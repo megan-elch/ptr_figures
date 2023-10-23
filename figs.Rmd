@@ -57,10 +57,24 @@ g + plot_annotation(
 ```{r fig2, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
 # FIGURE 2: Empirical Across Cluster Correlations
 # load previously computed correlations
+load("model_output/suff_stats_testes.RData")
+group_ref = protein_suff %>% 
+  dplyr::group_by(UNIPROT, pop_protein, ct) %>%
+  dplyr::summarise(mean_prot = mean(pep_av, na.rm = T)) %>%
+  ungroup() %>%
+  dplyr::group_by(UNIPROT, pop_protein) %>%
+  dplyr::summarise(var_ct = var(mean_prot, na.rm = T)) %>%
+  ungroup() %>%
+  dplyr::group_by(UNIPROT) %>%
+  dplyr::summarise(av_var = mean(var_ct, na.rm = T)) %>%
+  ungroup() %>%
+  dplyr::mutate(var_group_n = ntile(av_var, 5),
+                var_group = factor(var_group_n))
+
 load("model_output/m1_m2_ac_cor.RData")
 mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[3]
 mu_colors = colorspace::sequential_hcl(5, palette = "Reds 3")[3]
-m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors) + 
+m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors, group_ref = group_ref) + 
      ylab("") +
      ggtitle("mRNA")
 
@@ -82,7 +96,7 @@ cor_df_prot = cor_df_prot %>%
 
 protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[2]
 prot_colors = colorspace::sequential_hcl(5, palette = "Mako")[4]
-p1 = plot_across_clusters_correlation(cor_df_prot, color_select = protein_colors) + 
+p1 = plot_across_clusters_correlation(cor_df_prot, color_select = protein_colors, group_ref = group_ref) + 
      ylab("") +
      ggtitle("Protein")
 
@@ -110,15 +124,16 @@ cor_df = cor_df %>% mutate(pop = "m2p4")
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 multi_colors = "purple" # colorspace::sequential_hcl(5, palette = "Mako")[2]
-mp = plot_across_clusters_correlation(cor_df_multi, color_select = "gray47") +
+mp = plot_across_clusters_correlation(cor_df_multi, color_select = "gray47", group_ref = group_ref) +
      ggtitle("Across Modalities") + ylab("")
 
 p = (m1 + p1) / (mp)
 p +
+  plot_layout(guides = 'collect') +
   plot_annotation(title = "Figure 1: Across Clusters Correlation for mRNA, Protein Data Sets",
   tag_levels = 'A',
   theme = theme(plot.title = element_text(size = 40))) & 
-  theme(axis.title = element_text(size = 40), axis.text = element_text(size = 40))
+  theme(axis.title = element_text(size = 40), axis.text = element_text(size = 40), legend.position = "bottom") 
 ```
 
 ```{r fig3, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 17, fig.height = 25, cache = F}
