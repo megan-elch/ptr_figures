@@ -69,8 +69,12 @@ model_prep = function(mrna_suff, protein_suff,
                       clusters, specific_genes = NULL){
   options(mc.cores = parallel::detectCores())
 
-  protein_suff = protein_suff %>% mutate(pop_factor_protein = as.numeric(factor(pop_protein, levels = paste0("Pop", 1:n_protein))))
-  mrna_suff = mrna_suff %>% mutate(pop_factor_mrna = as.numeric(factor(pop_mrna, levels = paste0("Pop", 1:n_mrna))))
+  protein_suff = protein_suff %>%
+    filter(ct %in% clusters) %>%
+    mutate(pop_factor_protein = as.numeric(factor(pop_protein, levels = paste0("Pop", 1:n_protein))))
+  mrna_suff = mrna_suff %>%
+    filter(ct %in% clusters) %>%
+    mutate(pop_factor_mrna = as.numeric(factor(pop_mrna, levels = paste0("Pop", 1:n_mrna))))
 
   # filter out genes with no observed transcripts for all cell types
   mrna_suff = na.omit(mrna_suff) %>%

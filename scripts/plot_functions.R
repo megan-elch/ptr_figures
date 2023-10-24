@@ -426,13 +426,20 @@ plot_across_clusters_correlation = function(cor_df, color_select = "gray", group
     cor_df = cor_df %>%
       merge(group_ref) %>%
       na.omit()
-    g = ggplot(cor_df, aes(x = cors)) +
-      geom_density(aes(color = var_group), alpha = 0.5) +
-      geom_vline(xintercept = cor_med) +
-      colorspace::scale_color_discrete_sequential(palette = "Viridis", name = "Protein Variance Group") +
+
+    cor_summary = cor_df %>%
+      dplyr::group_by(var_group) %>%
+      dplyr::summarise(cor_med = median(cors))
+
+    g = ggplot(cor_df, aes(x = cors, y = var_group, fill = var_group)) +
+      # geom_density_ridges(, alpha = 0.5) +
+      stat_density_ridges(quantile_lines = TRUE, quantiles = 2) +
+      # geom_vline(data = cor_summary, aes(xintercept = cor_med)) +
+      colorspace::scale_fill_discrete_sequential(palette = "Viridis", name = "Protein Variance Group") +
+      scale_y_discrete(labels = function(x) str_wrap(x, width = 0)) +
       xlab("Across Clusters Correlation") +
       theme(text = element_text(size = 35),
-            axis.text = element_text(size = 22),
+            axis.text = element_text(size = 20),
             legend.key.size = unit(1.5, "cm"),
             legend.position = "bottom",
             panel.background = element_rect(fill = 'white', color = "slategray4"),
