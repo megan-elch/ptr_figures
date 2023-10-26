@@ -239,13 +239,15 @@ b = plot_go_heatmap(test_res) + theme(axis.text = element_text(size = 35),
 
 celltype_title = c("Endothelial Cells", "Leydig Cells", "Peritubular Myoid Cells", "Spermatocyte Cells", "Spermatagonia Cells", "Spermatids")
 
-load(paste0("model_output/GO_dat_", clusters[1], ".RData"))
+load(paste0("model_output/GO_dat_", clusters[3], ".RData"))
+GO_dat = GO_dat %>% filter(prt < 0.01)
 d = plot_ticks(GO_dat = GO_dat, gene_res = gene_res, selection1 = FALSE, 
-                    celltype = clusters[1], celltype_title = celltype_title[1])
+                    celltype = clusters[3], celltype_title = celltype_title[3])
 
-load(paste0("model_output/GO_dat_", clusters[4], ".RData"))
+load(paste0("model_output/GO_dat_", clusters[6], ".RData"))
+GO_dat = GO_dat %>% filter(prt < 0.01)
 f = plot_ticks(GO_dat = GO_dat, gene_res = gene_res, selection1 = FALSE, 
-                    celltype = clusters[4], celltype_title = celltype_title[4])
+                    celltype = clusters[6], celltype_title = celltype_title[6])
 
 design <- "
   AABCCD

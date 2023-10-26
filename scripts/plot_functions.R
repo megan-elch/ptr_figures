@@ -433,7 +433,7 @@ plot_across_clusters_correlation = function(cor_df, color_select = "gray", group
 
     g = ggplot(cor_df, aes(x = cors, y = var_group, fill = var_group)) +
       # geom_density_ridges(, alpha = 0.5) +
-      stat_density_ridges(quantile_lines = TRUE, quantiles = 2) +
+      stat_density_ridges(quantile_lines = TRUE, quantiles = 2, alpha = 0.5) +
       # geom_vline(data = cor_summary, aes(xintercept = cor_med)) +
       colorspace::scale_fill_discrete_sequential(palette = "Viridis", name = "Protein Variance Group") +
       scale_y_discrete(labels = function(x) str_wrap(x, width = 0)) +
