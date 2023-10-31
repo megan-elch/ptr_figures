@@ -58,24 +58,20 @@ g + plot_annotation(
 ```{r fig2, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
 # FIGURE 2: Empirical Across Cluster Correlations
 # load previously computed correlations
-load("model_output/suff_stats_testes.RData")
-group_ref = protein_suff %>% 
-  dplyr::group_by(UNIPROT, pop_protein, ct) %>%
-  dplyr::summarise(mean_prot = mean(pep_av, na.rm = T)) %>%
-  ungroup() %>%
-  dplyr::group_by(UNIPROT, pop_protein) %>%
-  dplyr::summarise(var_ct = var(mean_prot, na.rm = T),
-                   n_ct = length(unique(ct))) %>%
-  ungroup() %>%
-  filter(n_ct >= 5) %>%
+load("model_output/observed_z.RData")
+protein_pop1_z = protein_pop1_z %>% mutate(pop_protein = "Pop1") %>% filter(ct %in% clusters & is.finite(protein_zscore)) 
+protein_pop2_z = protein_pop2_z %>% mutate(pop_protein = "Pop2") %>% filter(ct %in% clusters & is.finite(protein_zscore)) 
+protein_pop4_z = protein_pop4_z %>% mutate(pop_protein = "Pop4") %>% filter(ct %in% clusters & is.finite(protein_zscore))
+group_ref = rbind(protein_pop1_z, protein_pop2_z) %>% rbind(protein_pop4_z) %>%
+  mutate(abs_z = abs(protein_zscore)) %>%
   dplyr::group_by(UNIPROT) %>%
-  dplyr::summarise(av_var = mean(var_ct, na.rm = T)) %>%
-  ungroup() %>%
-  dplyr::mutate(var_group_n = ntile(av_var, 3),
-                var_group = factor(var_group_n)) %>%
-  mutate(var_group = fct_recode(var_group, "Low Variance" = "1", "Moderate Variance" = "2", "High Variance" = "3"))
+  dplyr::summarise(max_z = max(abs_z, na.rm = T),
+                   thresh = max_z >= 1,
+                   thresh2 = max_z >= 2,
+                   var_group = ifelse(thresh, "Above Threshold", "Below Threshold"))
 
-load("model_output/m1_m2_ac_cor.RData")
+load("model_output/m1_m2_ac_cor.RData") 
+cor_df = cor_df %>% filter(n_ct >= 3)
 mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[3]
 mu_colors = colorspace::sequential_hcl(5, palette = "Reds 3")[3]
 m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors, group_ref = group_ref) + 
@@ -83,14 +79,14 @@ m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors, group_
      ggtitle("mRNA")
 
 load("model_output/p1_p2_ac_cor.RData")
-cor_df_prot = cor_df %>% mutate(pop = "P12")
+cor_df_prot = cor_df %>% mutate(pop = "P12") # %>% filter(n_ct >= 3)
 
 load("model_output/p1_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P14")
+cor_df = cor_df %>% mutate(pop = "P14") # %>% # filter(n_ct >=3)
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
 load("model_output/p2_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P24")
+cor_df = cor_df %>% mutate(pop = "P24") # %>% # filter(n_ct >= 3)
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
 cor_df_prot = cor_df_prot %>%
@@ -105,26 +101,26 @@ p1 = plot_across_clusters_correlation(cor_df_prot, color_select = protein_colors
      ggtitle("Protein")
 
 load("model_output/m1_p1_ac_cor.RData")
-cor_df_multi = cor_df %>% mutate(pop = "m1p1")
+cor_df_multi = cor_df %>% mutate(pop = "m1p1") # %>% filter(n_ct >= 3)
 
 load("model_output/m2_p1_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p1")
+cor_df = cor_df %>% mutate(pop = "m2p1") # %>% filter(n_ct >= 3)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m1_p2_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m1p2")
+cor_df = cor_df %>% mutate(pop = "m1p2") # %>% filter(n_ct >= 3)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m2_p2_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p2")
+cor_df = cor_df %>% mutate(pop = "m2p2") # %>% filter(n_ct >= 3)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m1_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m1p4")
+cor_df = cor_df %>% mutate(pop = "m1p4") # %>% filter(n_ct >= 3)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m2_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p4")
+cor_df = cor_df %>% mutate(pop = "m2p4") # %>% filter(n_ct >= 3)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 multi_colors = "purple" # colorspace::sequential_hcl(5, palette = "Mako")[2]

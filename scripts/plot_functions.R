@@ -127,57 +127,156 @@ plot_protein_obs_var = function(prep_list, across_celltypes = T, peptide_level =
   return(g)
 }
 
-# # compute z transformed lfcs for both modalities
-# prepare_zscore_data = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
-#   df_info = na.omit(df_info)
-#   # if selected modality is mrna
-#   if(tolower(type) == "mrna"){
-#     # prepare data frame
-#     df = df %>%
-#       as.matrix() %>%
-#       data.frame()
-#     df = df[,intersect(df_info$id, colnames(df))]
-#     df$SYMBOL = rownames(df)
-#
-#     # compute average for each cell type, gene
-#     means = df %>%
-#       pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
-#       dplyr::mutate(value = as.numeric(value)) %>%
-#       base::merge(df_info) %>%
-#       group_by(SYMBOL, ct) %>%
-#       dplyr::summarise(mrna_zscore = mean(value, na.rm = T),
-#                        mrna_zscore2 = mean(value2, na.rm = T)) %>% # mean z transformed log2 transcript count
-#       ungroup()
-#   }
-#
-#   # if modality is protein
-#   if(tolower(type) == "protein"){
-#     means = df %>%
-#       pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
-#     means[["UNIPROT"]] = means[[protein_label]]
-#     means[["pep"]] = means[[peptide_label]]
-#
-#     # compute z transformed lfcs
-#     means = means %>%
-#       base::merge(df_info) %>%
-#       dplyr::group_by(UNIPROT, id) %>%
-#       dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
-#       ungroup() %>%
-#       dplyr::group_by(id) %>%
-#       dplyr::mutate(centered_value = value - mean(value, na.rm = T)) %>% # centering
-#       ungroup() %>%
-#       dplyr::group_by(UNIPROT) %>%
-#       dplyr::mutate(orig_value = value,
-#                     value = scale(centered_value)[,1]) %>% # z transformation
-#       ungroup() %>%
-#       dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
-#       dplyr::group_by(UNIPROT, ct) %>%
-#       dplyr::summarise(protein_zscore = mean(value, na.rm = T),
-#                        protein_logmean = mean(orig_value, na.rm = T)) %>%
-#       ungroup()
-#   }
-#   return(means)
-# }
+prepare_score = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
+  df_info = na.omit(df_info)
+  if(tolower(type) == "mrna"){
+    df = df %>%
+      as.matrix() %>%
+      data.frame()
+    df = df[,intersect(df_info$id, colnames(df))]
+    df$SYMBOL = rownames(df)
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
+      dplyr::mutate(value = as.numeric(value)) %>%
+      base::merge(df_info, by = "id")
+    means = means %>%
+      # dplyr::group_by(SYMBOL) %>%
+      # dplyr::mutate(value = value/mean(value, na.rm = T)) %>%
+      dplyr::group_by(SYMBOL, ct) %>%
+      dplyr::summarise(mrna_zscore = mean(log2(value + 1), na.rm = T)) %>% # mean z transformed log2 transcript count
+      ungroup() %>%
+      dplyr::group_by(SYMBOL) %>%
+      # dplyr::mutate(mrna_zscore = scale(mrna_zscore)[,1]) # REMOVE FOR Z3
+      dplyr::mutate(mrna_zscore = mrna_zscore - mean(mrna_zscore, na.rm = T)) ## PUT BACK FOR Z3 THIS LINE ONLY
+    # dplyr::group_by(ct) %>%
+    # dplyr::mutate(mrna_zscore = log2((mrna_zscore + 1)*sum(mrna_zscore + 1, na.rm = T))) %>%
+    # ungroup()
+  }
+  if(tolower(type) == "protein"){
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
+    means[["UNIPROT"]] = means[[protein_label]]
+    means[["pep"]] = means[[peptide_label]]
+    means = means %>%
+      base::merge(df_info) %>%
+      dplyr::group_by(UNIPROT, id) %>%
+      dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
+      ungroup() %>%
+      # dplyr::group_by(UNIPROT) %>%
+      # dplyr::mutate(value = value - mean(value, na.rm = T)) %>%
+      # ungroup() %>%
+      # dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
+      dplyr::group_by(UNIPROT, ct) %>%
+      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      dplyr::group_by(UNIPROT) %>%
+      # dplyr::mutate(protein_zscore = scale(protein_zscore)[,1]) # REMOVE FOR Z3
+      dplyr::mutate(protein_zscore = protein_zscore - mean(protein_zscore, na.rm = T)) # PUT BACK FOR Z3
+  }
+  return(means)
+}
+
+prepare_zscore2 = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
+  df_info = na.omit(df_info)
+  if(tolower(type) == "mrna"){
+    df = df %>%
+      as.matrix() %>%
+      data.frame()
+    df = df[,intersect(df_info$id, colnames(df))]
+    df$SYMBOL = rownames(df)
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
+      dplyr::mutate(value = as.numeric(value)) %>%
+      base::merge(df_info, by = "id")
+
+    means = means %>%
+      dplyr::group_by(SYMBOL, ct) %>%
+      dplyr::summarise(mrna_zscore = sum(value, na.rm = T)) %>% # mean z transformed log2 transcript count
+      ungroup() %>%
+      dplyr::group_by(ct) %>%
+      dplyr::mutate(mrna_zscore = log2((mrna_zscore + 1)/sum(mrna_zscore + 1, na.rm = T))) %>%
+      ungroup() %>%
+      dplyr::group_by(SYMBOL) %>%
+      dplyr::mutate(mrna_zscore = scale(mrna_zscore)[,1])
+  }
+  if(tolower(type) == "protein"){
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
+    means[["UNIPROT"]] = means[[protein_label]]
+    means[["pep"]] = means[[peptide_label]]
+    means = means %>%
+      base::merge(df_info) %>%
+      dplyr::group_by(UNIPROT, id) %>%
+      dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
+      ungroup() %>%
+      dplyr::group_by(id) %>%
+      dplyr::mutate(centered_value = value - mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::mutate(value = centered_value) %>% # number of cells observed for each protein cell type
+      ungroup() %>%
+      dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
+      dplyr::group_by(UNIPROT, ct) %>%
+      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::mutate(protein_zscore = scale(protein_zscore)[,1])
+  }
+  return(means)
+}
+
+prepare_zscore_data = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
+  df_info = na.omit(df_info)
+  if(tolower(type) == "mrna"){
+    df = df %>%
+      as.matrix() %>%
+      data.frame()
+    df = df[,intersect(df_info$id, colnames(df))]
+    df$SYMBOL = rownames(df)
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
+      dplyr::mutate(value = log2(as.numeric(value) + 1)) %>%
+      dplyr::mutate(value = ifelse(value == 0, NA, value))
+    means = means %>% dplyr::group_by(id) %>%
+      dplyr::mutate(value = value - sum(value, na.rm = T),
+                    value2 = value - mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      base::merge(df_info) %>%
+      dplyr::group_by(SYMBOL) %>%
+      dplyr::mutate(value = scale(value)[,1],
+                    value2 = scale(value2)[,1]) %>%
+      ungroup() %>%
+      dplyr::mutate(value = ifelse(is.finite(value), value, NA),
+                    value2 = ifelse(is.finite(value2), value, NA)) %>%
+      group_by(SYMBOL, ct) %>%
+      dplyr::summarise(mrna_zscore = mean(value, na.rm = T),
+                       mrna_zscore2 = mean(value2, na.rm = T)) %>% # mean z transformed log2 transcript count
+      ungroup()
+  }
+  if(tolower(type) == "protein"){
+    means = df %>%
+      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
+    means[["UNIPROT"]] = means[[protein_label]]
+    means[["pep"]] = means[[peptide_label]]
+    means = means %>%
+      base::merge(df_info) %>%
+      dplyr::group_by(UNIPROT, id) %>%
+      dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
+      ungroup() %>%
+      dplyr::group_by(id) %>%
+      dplyr::mutate(centered_value = value - mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::mutate(orig_value = value,
+                    value = scale(centered_value)[,1]) %>% # number of cells observed for each protein cell type
+      ungroup() %>%
+      dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
+      dplyr::group_by(UNIPROT, ct) %>%
+      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
+      ungroup()
+  }
+  return(means)
+}
 
 # plot fitted averages for mu or mu + R
 plot_fit_means = function(gene_res, param = "mu"){
@@ -290,8 +389,8 @@ plot_zscore_means = function(mrna_z, protein_z, gene_res,
     scale_y_continuous(position = "right") +
     scale_color_manual(name = "", values = c(mrna_color, protein_color)) +
     # scale_shape_manual(name = "Observed in Param Interval", values = c(4, 1)) +
-    theme(text = element_text(size = 35),
-          axis.text = element_text(size = 20),
+    theme(text = element_text(size = 50),
+          # axis.text = element_text(size = 20),
           legend.key.size = unit(3, "cm"),
           legend.position = "top",
           legend.justification = "right",
@@ -310,14 +409,110 @@ plot_zscore_means = function(mrna_z, protein_z, gene_res,
     ylab("Ratio 95 Pct Posterior Interval") +
     scale_y_continuous(position = "right") +
     scale_color_manual(name = "Significant rPTR", values = c("gray47", "purple")) +
-    theme(text = element_text(size = 35),
-          axis.text = element_text(size = 30),
+    theme(text = element_text(size = 50),
+          # axis.text = element_text(size = 30),
           legend.key.size = unit(3, "cm"),
           legend.position = "top",
           legend.justification = "right",
           panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
           panel.grid.minor = element_line(color = 'slategray1'))
+  return(g2 / g1)
+}
+
+# plot z transformed averages of mrna, protein and posterior intervals of significant genes
+plot_zscore_means_simple = function(mrna_z, protein_z, gene_res,
+                             uni, organism = "human", clusters = NULL,
+                             mrna_pop_label, protein_pop_label, mrna_color, protein_color){
+  n_pop_m = length(mrna_z)
+  n_pop_p = length(protein_z)
+
+  # unify gene labels based on human or mouse organism
+  if(organism == "human"){
+    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
+    gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
+    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+  }
+  if(organism == "mouse"){
+    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
+    gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
+    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+  }
+
+  # filter to pre-selected clusters (optional)
+  if(!is.null(clusters)){
+    mrna_z = lapply(mrna_z, function(x) filter(x, ct %in% clusters))
+    protein_z = lapply(protein_z, function(x) filter(x, ct %in% clusters))
+    gene_res = gene_res %>% filter(ct %in% clusters)
+  }
+
+  # filter to selected gene for each modality, arrange by cell type
+  mrna_z = lapply(mrna_z, function(x) filter(x, UNIPROT == uni)) %>%
+    lapply(., function(x) arrange(x, ct)) %>%
+    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+
+  protein_z = lapply(protein_z, function(x) filter(x, UNIPROT == uni)) %>%
+    lapply(., function(x) arrange(x, ct)) %>%
+    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+
+  # same thing for fitted parameter data
+  gene_res = gene_res %>%
+    merge(gene_rec) %>%
+    filter(UNIPROT == uni) %>%
+    arrange(ct) %>%
+    mutate(ct_factor = factor(ct, levels = clusters))
+
+  # record whether observed value fits in 95 pct posterior interval for each modality
+  mrna_z = lapply(mrna_z, function(x) merge(x, gene_res)) %>%
+    lapply(., function(x) mutate(x, param_in = mrna_zscore >= mu_lwr & mrna_zscore <= mu_upr))
+
+  protein_z = lapply(protein_z, function(x) merge(x, gene_res)) %>%
+    lapply(., function(x) mutate(x, param_in = protein_zscore >= prot_lwr & protein_zscore <= prot_upr))
+
+  # use full gene names for selected uniprot id
+  gene_name_select = mrna_z %>% rlist::list.rbind() %>% filter(UNIPROT == uni) %>% pull(GENENAME) %>% unique()
+  if(length(gene_name_select) >= 1){
+    gene_name_select = gene_name_select %>% sample(1) # if there is more than one gene name present, randomly select one
+  }
+  ylab_select = paste(gene_name_select, uni) # axis label
+
+  mrna_label = paste0("mRNA ", mrna_pop_label)
+  protein_label = paste0("Protein ", protein_pop_label)
+
+  # draw plot
+  g1 = ggplot() +
+    geom_hline(yintercept = 0, linetype = 3) +
+    geom_point(data = mrna_z[[1]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
+    geom_path(data = mrna_z[[1]][!is.na(mrna_z[[1]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[1])) +
+    geom_point(data = mrna_z[[2]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
+    geom_path(data = mrna_z[[2]][!is.na(mrna_z[[2]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[2])) +
+    geom_point(data = protein_z[[1]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    geom_path(data = protein_z[[1]][!is.na(protein_z[[1]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[1])) +
+    geom_point(data = protein_z[[2]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    geom_path(data = protein_z[[2]][!is.na(protein_z[[2]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[2])) +
+    geom_point(data = protein_z[[3]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    geom_path(data = protein_z[[3]][!is.na(protein_z[[3]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[3])) +
+    scale_y_continuous(position = "right") +
+    scale_color_manual(name = "", values = c(mrna_color, protein_color)) +
+    theme(text = element_blank(),
+          legend.position = "none",
+          panel.background = element_rect(fill = 'white', color = "gray"),
+          panel.grid.major = element_line(color = 'white'),
+          panel.grid.minor = element_line(color = 'white'))
+  # draw posterior interval for ratio
+  g2 = ggplot() +
+    geom_hline(yintercept = 0, linetype = 3) +
+    geom_point(data = gene_res, mapping = aes(x = ct_factor, y = r_av, color = significant), size = 10) +
+    geom_linerange(data = gene_res, mapping = aes(x = ct_factor, ymin = r_lwr, ymax = r_upr, color = significant), linewidth = 3) +
+    geom_path(data = gene_res, mapping = aes(x = ct_factor, y = r_av, group = UNIPROT)) +
+    ggtitle(ylab_select) +
+    scale_y_continuous(position = "right") +
+    scale_color_manual(name = "", values = c("gray47", "purple")) +
+    theme(text = element_blank(),
+          legend.position = "none",
+          panel.background = element_rect(fill = 'white', color = "gray"),
+          panel.grid.major = element_line(color = 'white'),
+          panel.grid.minor = element_line(color = 'white'))
   return(g2 / g1)
 }
 
@@ -435,7 +630,7 @@ plot_across_clusters_correlation = function(cor_df, color_select = "gray", group
       # geom_density_ridges(, alpha = 0.5) +
       stat_density_ridges(quantile_lines = TRUE, quantiles = 2, alpha = 0.5) +
       # geom_vline(data = cor_summary, aes(xintercept = cor_med)) +
-      colorspace::scale_fill_discrete_sequential(palette = "Viridis", name = "Protein Variance Group") +
+      colorspace::scale_fill_discrete_sequential(palette = "Plasma", name = "Protein |LFC|") +
       scale_y_discrete(labels = function(x) str_wrap(x, width = 0)) +
       xlab("Across Clusters Correlation") +
       theme(text = element_text(size = 35),
