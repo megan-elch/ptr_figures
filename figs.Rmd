@@ -79,14 +79,14 @@ m1 = plot_across_clusters_correlation(cor_df, color_select = mrna_colors, group_
      ggtitle("mRNA")
 
 load("model_output/p1_p2_ac_cor.RData")
-cor_df_prot = cor_df %>% mutate(pop = "P12") # %>% filter(n_ct >= 3)
+cor_df_prot = cor_df %>% mutate(pop = "P12") %>% filter(n_ct >= 4)
 
 load("model_output/p1_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P14") # %>% # filter(n_ct >=3)
+cor_df = cor_df %>% mutate(pop = "P14") %>% filter(n_ct >=4)
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
 load("model_output/p2_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P24") # %>% # filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "P24") %>% filter(n_ct >= 4)
 cor_df_prot = cor_df_prot %>% rbind(cor_df)
 
 cor_df_prot = cor_df_prot %>%
@@ -101,26 +101,26 @@ p1 = plot_across_clusters_correlation(cor_df_prot, color_select = protein_colors
      ggtitle("Protein")
 
 load("model_output/m1_p1_ac_cor.RData")
-cor_df_multi = cor_df %>% mutate(pop = "m1p1") # %>% filter(n_ct >= 3)
+cor_df_multi = cor_df %>% mutate(pop = "m1p1") %>% filter(n_ct >= 4)
 
 load("model_output/m2_p1_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p1") # %>% filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "m2p1") %>% filter(n_ct >= 4)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m1_p2_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m1p2") # %>% filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "m1p2") %>% filter(n_ct >= 4)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m2_p2_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p2") # %>% filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "m2p2") %>% filter(n_ct >= 4)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m1_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m1p4") # %>% filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "m1p4") %>% filter(n_ct >= 4)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 load("model_output/m2_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "m2p4") # %>% filter(n_ct >= 3)
+cor_df = cor_df %>% mutate(pop = "m2p4") %>% filter(n_ct >= 4)
 cor_df_multi = cor_df_multi %>% rbind(cor_df)
 
 multi_colors = "purple" # colorspace::sequential_hcl(5, palette = "Mako")[2]
