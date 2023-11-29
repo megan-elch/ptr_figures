@@ -127,105 +127,94 @@ plot_protein_obs_var = function(prep_list, across_celltypes = T, peptide_level =
   return(g)
 }
 
-prepare_score = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
+compute_pairwise_cors = function(df, df_info, type = "mrna", protein_label = "prot", peptide_label = "pep"){
   df_info = na.omit(df_info)
   if(tolower(type) == "mrna"){
     df = df %>%
       as.matrix() %>%
       data.frame()
     df = df[,intersect(df_info$id, colnames(df))]
-    df$SYMBOL = rownames(df)
-    means = df %>%
-      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
-      dplyr::mutate(value = as.numeric(value)) %>%
-      base::merge(df_info, by = "id")
-    means = means %>%
-      # dplyr::group_by(SYMBOL) %>%
-      # dplyr::mutate(value = value/mean(value, na.rm = T)) %>%
-      dplyr::group_by(SYMBOL, ct) %>%
-      dplyr::summarise(mrna_zscore = mean(log2(value + 1), na.rm = T)) %>% # mean z transformed log2 transcript count
-      ungroup() %>%
-      dplyr::group_by(SYMBOL) %>%
-      # dplyr::mutate(mrna_zscore = scale(mrna_zscore)[,1]) # REMOVE FOR Z3
-      dplyr::mutate(mrna_zscore = mrna_zscore - mean(mrna_zscore, na.rm = T)) ## PUT BACK FOR Z3 THIS LINE ONLY
-    # dplyr::group_by(ct) %>%
-    # dplyr::mutate(mrna_zscore = log2((mrna_zscore + 1)*sum(mrna_zscore + 1, na.rm = T))) %>%
-    # ungroup()
   }
+
   if(tolower(type) == "protein"){
-    means = df %>%
-      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
-    means[["UNIPROT"]] = means[[protein_label]]
-    means[["pep"]] = means[[peptide_label]]
-    means = means %>%
-      base::merge(df_info) %>%
-      dplyr::group_by(UNIPROT, id) %>%
-      dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
-      ungroup() %>%
-      # dplyr::group_by(UNIPROT) %>%
-      # dplyr::mutate(value = value - mean(value, na.rm = T)) %>%
-      # ungroup() %>%
-      # dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
-      dplyr::group_by(UNIPROT, ct) %>%
-      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
-      ungroup() %>%
+    df[["UNIPROT"]] = df[[protein_label]]
+    rownames(df) = NULL
+    df = df %>%
+      data.frame() %>%
+      column_to_rownames(var = peptide_label) %>%
       dplyr::group_by(UNIPROT) %>%
-      # dplyr::mutate(protein_zscore = scale(protein_zscore)[,1]) # REMOVE FOR Z3
-      dplyr::mutate(protein_zscore = protein_zscore - mean(protein_zscore, na.rm = T)) # PUT BACK FOR Z3
+      dplyr::summarise_if(is.numeric, mean, na.rm = TRUE) %>%
+      ungroup() %>%
+      column_to_rownames(var = "UNIPROT")
   }
-  return(means)
+
+  cor_df = cor(t(df), use = "pairwise.complete.obs") %>%
+    data.frame() %>%
+    rownames_to_column(var = "gene1")
+  cor_df = pivot_longer(cor_df, cols = setdiff(colnames(cor_df), "gene1"), names_to = "gene2", values_to = "cors")
+  print(head(cor_df))
+  return(cor_df)
 }
 
-prepare_zscore2 = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
-  df_info = na.omit(df_info)
-  if(tolower(type) == "mrna"){
-    df = df %>%
-      as.matrix() %>%
-      data.frame()
-    df = df[,intersect(df_info$id, colnames(df))]
-    df$SYMBOL = rownames(df)
-    means = df %>%
-      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
-      dplyr::mutate(value = as.numeric(value)) %>%
-      base::merge(df_info, by = "id")
+compute_cor_of_cors = function(df1, df2, symbol = F){
+  df1 = df1 %>% na.omit()
+  df2 = df2 %>% na.omit()
+  if(symbol == TRUE){
+    df1 = df1 %>%
+      dplyr::mutate(symbol1 = gene1, symbol2 = gene2) %>%
+      dplyr::select(-c(gene1, gene2))
 
-    means = means %>%
-      dplyr::group_by(SYMBOL, ct) %>%
-      dplyr::summarise(mrna_zscore = sum(value, na.rm = T)) %>% # mean z transformed log2 transcript count
+    gene_ref = AnnotationDbi::select(org.Hs.eg.db, keys = unique(df1$symbol1), keytype = "SYMBOL", columns = c("UNIPROT")) %>%
+      dplyr::mutate(symbol1 = SYMBOL, gene1 = UNIPROT) %>%
+      dplyr::select(-c(SYMBOL, UNIPROT))
+
+    df1 = merge(df1, gene_ref)
+
+    gene_ref = gene_ref %>%
+      mutate(symbol2 = symbol1, gene2 = gene1) %>%
+      dplyr::select(-c(symbol1, gene1))
+
+    df1 = merge(df1, gene_ref)
+    print("done with name reconciliation")
+
+  }
+  df1 = df1 %>% mutate(df1_cor = cors) %>% dplyr::select(-cors)
+  df2 = df2 %>% mutate(df2_cor = cors) %>% dplyr::select(-cors)
+
+  cor_df = merge(df1, df2) %>%
+    dplyr::group_by(gene1) %>%
+    dplyr::summarise(cors = cor(df1_cor, df2_cor, use = "pairwise.complete.obs"))
+  return(cor_df)
+}
+
+prepare_zscore_ppc = function(ppc_df, type = "mrna"){
+  if(tolower(type) == "mrna"){
+    means = ppc_df %>%
+      dplyr::mutate(mrna_sum_rep = log2((mrna_sum_rep/n_cells) + 1)) %>%
+      # dplyr::group_by(ct, .iteration, .chain, pop_mrna) %>%
+      # dplyr::mutate(mrna_average = log2(mrna_sum_rep/mean(mrna_sum_rep, na.rm = T) + 1)) %>%
+      # ungroup() %>%
+      dplyr::group_by(UNIPROT, ct, pop_mrna) %>%
+      dplyr::summarise(mrna_zscore = mean(mrna_sum_rep, na.rm = T)) %>%
       ungroup() %>%
-      dplyr::group_by(ct) %>%
-      dplyr::mutate(mrna_zscore = log2((mrna_zscore + 1)/sum(mrna_zscore + 1, na.rm = T))) %>%
-      ungroup() %>%
-      dplyr::group_by(SYMBOL) %>%
-      dplyr::mutate(mrna_zscore = scale(mrna_zscore)[,1])
+      dplyr::group_by(UNIPROT, pop_mrna) %>%
+      dplyr::mutate(mrna_zscore = scale(mrna_zscore)[,1]) %>%
+      ungroup()
   }
   if(tolower(type) == "protein"){
-    means = df %>%
-      pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id")
-    means[["UNIPROT"]] = means[[protein_label]]
-    means[["pep"]] = means[[peptide_label]]
-    means = means %>%
-      base::merge(df_info) %>%
-      dplyr::group_by(UNIPROT, id) %>%
-      dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
-      ungroup() %>%
-      dplyr::group_by(id) %>%
-      dplyr::mutate(centered_value = value - mean(value, na.rm = T)) %>%
-      ungroup() %>%
-      dplyr::group_by(UNIPROT) %>%
-      dplyr::mutate(value = centered_value) %>% # number of cells observed for each protein cell type
-      ungroup() %>%
-      dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
-      dplyr::group_by(UNIPROT, ct) %>%
-      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
-      ungroup() %>%
-      dplyr::group_by(UNIPROT) %>%
+    means = ppc_df %>%
+      # dplyr::group_by(ct, .iteration, .chain, pop_protein) %>%
+      # dplyr::mutate(protein_average = protein_bar_rep - mean(protein_bar_rep, na.rm = T)) %>%
+      # ungroup() %>%
+      dplyr::group_by(UNIPROT, ct, pop_protein) %>%
+      dplyr::summarise(protein_zscore = mean(protein_bar_rep, na.rm = T)) %>%
+      dplyr::group_by(UNIPROT, pop_protein) %>%
       dplyr::mutate(protein_zscore = scale(protein_zscore)[,1])
   }
   return(means)
 }
 
-prepare_zscore_data = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
+prepare_zscore = function(df, df_info, clusters = NULL, type = "mrna", protein_label = "prot", peptide_label = "pep"){
   df_info = na.omit(df_info)
   if(tolower(type) == "mrna"){
     df = df %>%
@@ -236,22 +225,15 @@ prepare_zscore_data = function(df, df_info, clusters = NULL, type = "mrna", prot
     means = df %>%
       pivot_longer(cols = intersect(df_info$id, colnames(df)), names_to = "id") %>%
       dplyr::mutate(value = log2(as.numeric(value) + 1)) %>%
-      dplyr::mutate(value = ifelse(value == 0, NA, value))
-    means = means %>% dplyr::group_by(id) %>%
-      dplyr::mutate(value = value - sum(value, na.rm = T),
-                    value2 = value - mean(value, na.rm = T)) %>%
+      base::merge(df_info, by = "id") %>%
+      # dplyr::group_by(id) %>%
+      # dplyr::mutate(value = log2(value/mean(value, na.rm = T) + 1)) %>%
+      dplyr::group_by(SYMBOL, ct) %>%
+      dplyr::summarise(mrna_average = mean(value, na.rm = T)) %>%
       ungroup() %>%
-      base::merge(df_info) %>%
       dplyr::group_by(SYMBOL) %>%
-      dplyr::mutate(value = scale(value)[,1],
-                    value2 = scale(value2)[,1]) %>%
-      ungroup() %>%
-      dplyr::mutate(value = ifelse(is.finite(value), value, NA),
-                    value2 = ifelse(is.finite(value2), value, NA)) %>%
-      group_by(SYMBOL, ct) %>%
-      dplyr::summarise(mrna_zscore = mean(value, na.rm = T),
-                       mrna_zscore2 = mean(value2, na.rm = T)) %>% # mean z transformed log2 transcript count
-      ungroup()
+      dplyr::mutate(mrna_zscore = scale(mrna_average)[,1])
+
   }
   if(tolower(type) == "protein"){
     means = df %>%
@@ -263,17 +245,12 @@ prepare_zscore_data = function(df, df_info, clusters = NULL, type = "mrna", prot
       dplyr::group_by(UNIPROT, id) %>%
       dplyr::mutate(value = mean(value, na.rm = T)) %>% # number of cells observed for each protein cell type
       ungroup() %>%
-      dplyr::group_by(id) %>%
-      dplyr::mutate(centered_value = value - mean(value, na.rm = T)) %>%
-      ungroup() %>%
-      dplyr::group_by(UNIPROT) %>%
-      dplyr::mutate(orig_value = value,
-                    value = scale(centered_value)[,1]) %>% # number of cells observed for each protein cell type
-      ungroup() %>%
       dplyr::mutate(value = ifelse(is.finite(value), value, NA)) %>%
       dplyr::group_by(UNIPROT, ct) %>%
-      dplyr::summarise(protein_zscore = mean(value, na.rm = T)) %>%
-      ungroup()
+      dplyr::summarise(protein_average = mean(value, na.rm = T)) %>%
+      ungroup() %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::mutate(protein_zscore = scale(protein_average)[,1])
   }
   return(means)
 }
@@ -311,90 +288,88 @@ plot_fit_means = function(gene_res, param = "mu"){
 }
 
 # plot z transformed averages of mrna, protein and posterior intervals of significant genes
-plot_zscore_means = function(mrna_z, protein_z, gene_res,
-                             uni, organism = "human", clusters = NULL,
-                             mrna_pop_label, protein_pop_label, mrna_color, protein_color){
+plot_zscore_means = function(mrna_z, protein_z, gene_res, mrna_ppc_z, protein_ppc_z,
+                             uni, organism = "human", clusters,
+                             mrna_pop_label, protein_pop_label,
+                             mrna_color, protein_color, mrna_ppc_color, protein_ppc_color){
   n_pop_m = length(mrna_z)
   n_pop_p = length(protein_z)
 
   # unify gene labels based on human or mouse organism
   if(organism == "human"){
-    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
-    gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
-    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+    gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = uni, keytype = "UNIPROT", columns = c("SYMBOL", "GENENAME"))
   }
   if(organism == "mouse"){
-    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
-    gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
-    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+    gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = uni, keytype = "UNIPROT", columns = c("SYMBOL", "GENENAME"))
   }
 
-  # filter to pre-selected clusters (optional)
-  if(!is.null(clusters)){
-    mrna_z = lapply(mrna_z, function(x) filter(x, ct %in% clusters))
-    protein_z = lapply(protein_z, function(x) filter(x, ct %in% clusters))
-    gene_res = gene_res %>% filter(ct %in% clusters)
+  mrna_label = paste0("mRNA ", mrna_pop_label)
+  mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+  mrna_z = lapply(mrna_z, function(x) mutate(x, df_lab = NULL))
+  for(i in 1:length(mrna_z)){
+    mrna_z[[i]] = mutate(mrna_z[[i]], df_lab = mrna_label[i])
   }
+  mrna_z = rlist::list.rbind(mrna_z)
+
+  protein_label = paste0("Protein ", protein_pop_label)
+  protein_z = lapply(protein_z, function(x) mutate(x, df_lab = NULL))
+  for(i in 1:length(protein_z)){
+    protein_z[[i]] = mutate(protein_z[[i]], df_lab = protein_label[i])
+  }
+  protein_z = rlist::list.rbind(protein_z)
 
   # filter to selected gene for each modality, arrange by cell type
-  mrna_z = lapply(mrna_z, function(x) filter(x, UNIPROT == uni)) %>%
-    lapply(., function(x) arrange(x, ct)) %>%
-    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+  mrna_z = mrna_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
-  protein_z = lapply(protein_z, function(x) filter(x, UNIPROT == uni)) %>%
-    lapply(., function(x) arrange(x, ct)) %>%
-    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+  protein_z = protein_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
   # same thing for fitted parameter data
   gene_res = gene_res %>%
     merge(gene_rec) %>%
-    filter(UNIPROT == uni) %>%
-    arrange(ct) %>%
-    mutate(ct_factor = factor(ct, levels = clusters))
+    filter(UNIPROT == uni & ct %in% clusters) %>%
+    mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
-  # record whether observed value fits in 95 pct posterior interval for each modality
-  mrna_z = lapply(mrna_z, function(x) merge(x, gene_res)) %>%
-           lapply(., function(x) mutate(x, param_in = mrna_zscore >= mu_lwr & mrna_zscore <= mu_upr))
+  mrna_ppc_z = mrna_ppc_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
-  protein_z = lapply(protein_z, function(x) merge(x, gene_res)) %>%
-              lapply(., function(x) mutate(x, param_in = protein_zscore >= prot_lwr & protein_zscore <= prot_upr))
+  protein_ppc_z = protein_ppc_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
   # use full gene names for selected uniprot id
-  gene_name_select = mrna_z %>% rlist::list.rbind() %>% filter(UNIPROT == uni) %>% pull(GENENAME) %>% unique()
+  gene_name_select = gene_rec %>% pull(GENENAME) %>% unique()
   if(length(gene_name_select) >= 1){
     gene_name_select = gene_name_select %>% sample(1) # if there is more than one gene name present, randomly select one
   }
   ylab_select = paste(gene_name_select, uni) # axis label
 
-  mrna_label = paste0("mRNA ", mrna_pop_label)
-  protein_label = paste0("Protein ", protein_pop_label)
-
   # draw plot
   g1 = ggplot() +
     geom_hline(yintercept = 0, linetype = 3) +
-    geom_point(data = mrna_z[[1]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
-    geom_path(data = mrna_z[[1]][!is.na(mrna_z[[1]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[1])) +
-    geom_point(data = mrna_z[[2]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
-    geom_path(data = mrna_z[[2]][!is.na(mrna_z[[2]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[2])) +
-    geom_point(data = protein_z[[1]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[1]][!is.na(protein_z[[1]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[1])) +
-    geom_point(data = protein_z[[2]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[2]][!is.na(protein_z[[2]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[2])) +
-    geom_point(data = protein_z[[3]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[3]][!is.na(protein_z[[3]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[3])) +
-    # geom_point(data = protein_z[[4]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    # geom_path(data = protein_z[[4]][!is.na(protein_z[[4]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[4])) +
-    ylab("Z Log2 Cluster Level Average") +
-    xlab("Cell Type") +
+    geom_point(data = mrna_ppc_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA PPC"), size = 10) +
+    geom_path(data = mrna_ppc_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA PPC", group = pop_mrna)) +
+    geom_point(data = protein_ppc_z, aes(x = ct_factor, y = protein_zscore, color = "Protein PPC"), size = 10) +
+    geom_path(data = protein_ppc_z, aes(x = ct_factor, y = protein_zscore, color = "Protein PPC", group = pop_protein)) +
+    geom_point(data = mrna_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
+    geom_path(data = mrna_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = df_lab)) +
+    geom_point(data = protein_z, aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    geom_path(data = protein_z, aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = df_lab)) +
+    ylab("Cluster Level LFC") +
+    xlab("") +
     scale_y_continuous(position = "right") +
-    scale_color_manual(name = "", values = c(mrna_color, protein_color)) +
-    # scale_shape_manual(name = "Observed in Param Interval", values = c(4, 1)) +
-    theme(text = element_text(size = 50),
-          # axis.text = element_text(size = 20),
-          legend.key.size = unit(3, "cm"),
-          legend.position = "top",
-          legend.justification = "right",
-          panel.background = element_rect(fill = 'white', color = "slategray4"),
+    guides(color = guide_legend(nrow = 2)) +
+    scale_color_manual(name = "", values = c(mrna_color, mrna_ppc_color, protein_color, protein_ppc_color)) +
+    theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
           panel.grid.minor = element_line(color = 'slategray1'))
 
@@ -402,118 +377,93 @@ plot_zscore_means = function(mrna_z, protein_z, gene_res,
   g2 = ggplot() +
     geom_hline(yintercept = 0, linetype = 3) +
     geom_point(data = gene_res, mapping = aes(x = ct_factor, y = r_av, color = significant), size = 10) +
-    geom_linerange(data = gene_res, mapping = aes(x = ct_factor, ymin = r_lwr, ymax = r_upr, color = significant), linewidth = 3) +
+    geom_linerange(data = gene_res, mapping = aes(x = ct_factor, ymin = r_lwr, ymax = r_upr, color = significant), linewidth = 5) +
     geom_path(data = gene_res, mapping = aes(x = ct_factor, y = r_av, group = UNIPROT)) +
-    ggtitle(ylab_select) +
-    xlab("Cell Type") +
-    ylab("Ratio 95 Pct Posterior Interval") +
+    labs(title = str_wrap(ylab_select, 27)) +
+    xlab("") +
+    ylab("rPTR Posterior Interval") +
     scale_y_continuous(position = "right") +
-    scale_color_manual(name = "Significant rPTR", values = c("gray47", "purple")) +
-    theme(text = element_text(size = 50),
-          # axis.text = element_text(size = 30),
-          legend.key.size = unit(3, "cm"),
-          legend.position = "top",
-          legend.justification = "right",
-          panel.background = element_rect(fill = 'white', color = "slategray4"),
+    scale_color_manual(guide = "none", values = c("gray47", "purple")) +
+    theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
-          panel.grid.minor = element_line(color = 'slategray1'))
+          panel.grid.minor = element_line(color = 'slategray1'),
+          axis.text.x = element_blank())
   return(g2 / g1)
 }
 
-# plot z transformed averages of mrna, protein and posterior intervals of significant genes
-plot_zscore_means_simple = function(mrna_z, protein_z, gene_res,
-                             uni, organism = "human", clusters = NULL,
-                             mrna_pop_label, protein_pop_label, mrna_color, protein_color){
+plot_zscore_means_alone = function(mrna_z, protein_z, gene_res,
+                             uni, organism = "human", clusters,
+                             mrna_pop_label, protein_pop_label,
+                             mrna_color, protein_color,
+                             title_select = "High Variance, Low Agreement"){
+
   n_pop_m = length(mrna_z)
   n_pop_p = length(protein_z)
 
   # unify gene labels based on human or mouse organism
   if(organism == "human"){
-    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
-    gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
-    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+    gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = uni, keytype = "UNIPROT", columns = c("SYMBOL", "GENENAME"))
   }
   if(organism == "mouse"){
-    symbols_m = unique(unlist(lapply(mrna_z, function(x) pull(x, SYMBOL))))
-    gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = symbols_m, keytype = "SYMBOL", columns = c("UNIPROT", "GENENAME"))
-    mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+    gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = uni, keytype = "UNIPROT", columns = c("SYMBOL", "GENENAME"))
   }
 
-  # filter to pre-selected clusters (optional)
-  if(!is.null(clusters)){
-    mrna_z = lapply(mrna_z, function(x) filter(x, ct %in% clusters))
-    protein_z = lapply(protein_z, function(x) filter(x, ct %in% clusters))
-    gene_res = gene_res %>% filter(ct %in% clusters)
+  mrna_label = paste0("mRNA ", mrna_pop_label)
+  mrna_z = lapply(mrna_z, function(x) merge(x, gene_rec))
+  mrna_z = lapply(mrna_z, function(x) mutate(x, df_lab = NULL))
+  for(i in 1:length(mrna_z)){
+    mrna_z[[i]] = mutate(mrna_z[[i]], df_lab = mrna_label[i])
   }
+  mrna_z = rlist::list.rbind(mrna_z)
+
+  protein_label = paste0("Protein ", protein_pop_label)
+  protein_z = lapply(protein_z, function(x) mutate(x, df_lab = NULL))
+  for(i in 1:length(protein_z)){
+    protein_z[[i]] = mutate(protein_z[[i]], df_lab = protein_label[i])
+  }
+  protein_z = rlist::list.rbind(protein_z)
 
   # filter to selected gene for each modality, arrange by cell type
-  mrna_z = lapply(mrna_z, function(x) filter(x, UNIPROT == uni)) %>%
-    lapply(., function(x) arrange(x, ct)) %>%
-    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+  mrna_z = mrna_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
-  protein_z = lapply(protein_z, function(x) filter(x, UNIPROT == uni)) %>%
-    lapply(., function(x) arrange(x, ct)) %>%
-    lapply(., function(x) mutate(x, ct_factor = factor(ct, levels = clusters)))
+  protein_z = protein_z %>%
+    dplyr::filter(UNIPROT == uni & ct %in% clusters) %>%
+    dplyr::mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
   # same thing for fitted parameter data
   gene_res = gene_res %>%
     merge(gene_rec) %>%
-    filter(UNIPROT == uni) %>%
-    arrange(ct) %>%
-    mutate(ct_factor = factor(ct, levels = clusters))
-
-  # record whether observed value fits in 95 pct posterior interval for each modality
-  mrna_z = lapply(mrna_z, function(x) merge(x, gene_res)) %>%
-    lapply(., function(x) mutate(x, param_in = mrna_zscore >= mu_lwr & mrna_zscore <= mu_upr))
-
-  protein_z = lapply(protein_z, function(x) merge(x, gene_res)) %>%
-    lapply(., function(x) mutate(x, param_in = protein_zscore >= prot_lwr & protein_zscore <= prot_upr))
+    filter(UNIPROT == uni & ct %in% clusters) %>%
+    mutate(ct_factor = factor(ct, levels = clusters)) %>%
+    arrange(ct_factor)
 
   # use full gene names for selected uniprot id
-  gene_name_select = mrna_z %>% rlist::list.rbind() %>% filter(UNIPROT == uni) %>% pull(GENENAME) %>% unique()
+  gene_name_select = gene_rec %>% pull(GENENAME) %>% unique()
   if(length(gene_name_select) >= 1){
     gene_name_select = gene_name_select %>% sample(1) # if there is more than one gene name present, randomly select one
   }
   ylab_select = paste(gene_name_select, uni) # axis label
 
-  mrna_label = paste0("mRNA ", mrna_pop_label)
-  protein_label = paste0("Protein ", protein_pop_label)
-
   # draw plot
   g1 = ggplot() +
     geom_hline(yintercept = 0, linetype = 3) +
-    geom_point(data = mrna_z[[1]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
-    geom_path(data = mrna_z[[1]][!is.na(mrna_z[[1]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[1])) +
-    geom_point(data = mrna_z[[2]], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
-    geom_path(data = mrna_z[[2]][!is.na(mrna_z[[2]]$mrna_zscore),], aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = mrna_label[2])) +
-    geom_point(data = protein_z[[1]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[1]][!is.na(protein_z[[1]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[1])) +
-    geom_point(data = protein_z[[2]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[2]][!is.na(protein_z[[2]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[2])) +
-    geom_point(data = protein_z[[3]], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
-    geom_path(data = protein_z[[3]][!is.na(protein_z[[3]]$protein_zscore),], aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = protein_label[3])) +
+    geom_point(data = mrna_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical"), size = 10) +
+    geom_path(data = mrna_z, aes(x = ct_factor, y = mrna_zscore, color = "mRNA Empirical", group = df_lab)) +
+    geom_point(data = protein_z, aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical"), size = 10) +
+    geom_path(data = protein_z, aes(x = ct_factor, y = protein_zscore, color = "Protein Empirical", group = df_lab)) +
+    ylab("Cluster Level LFC") +
+    ggtitle(title_select) +
+    xlab(str_wrap(ylab_select, 30)) +
     scale_y_continuous(position = "right") +
     scale_color_manual(name = "", values = c(mrna_color, protein_color)) +
-    theme(text = element_blank(),
-          legend.position = "none",
-          panel.background = element_rect(fill = 'white', color = "gray"),
-          panel.grid.major = element_line(color = 'white'),
-          panel.grid.minor = element_line(color = 'white'))
-  # draw posterior interval for ratio
-  g2 = ggplot() +
-    geom_hline(yintercept = 0, linetype = 3) +
-    geom_point(data = gene_res, mapping = aes(x = ct_factor, y = r_av, color = significant), size = 10) +
-    geom_linerange(data = gene_res, mapping = aes(x = ct_factor, ymin = r_lwr, ymax = r_upr, color = significant), linewidth = 3) +
-    geom_path(data = gene_res, mapping = aes(x = ct_factor, y = r_av, group = UNIPROT)) +
-    ggtitle(ylab_select) +
-    scale_y_continuous(position = "right") +
-    scale_color_manual(name = "", values = c("gray47", "purple")) +
-    theme(text = element_blank(),
-          legend.position = "none",
-          panel.background = element_rect(fill = 'white', color = "gray"),
-          panel.grid.major = element_line(color = 'white'),
-          panel.grid.minor = element_line(color = 'white'))
-  return(g2 / g1)
+    theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
+          panel.grid.major = element_line(color = 'slategray2'),
+          panel.grid.minor = element_line(color = 'slategray1'))
+  return(g1)
 }
 
 # plot cell type, data set effect for each modality
@@ -538,40 +488,30 @@ plot_ct_effect = function(a_info, b_info, mrna_color, protein_color){
   return(g)
 }
 
-# plot across clusters correlation by across clusters variance
-plot_across_clusters_var = function(var_df, cor_df, type = "protein"){
-
-  # draw axis label
+compute_across_clusters_var = function(df, type = "protein", organism = "human"){
   if(type == "protein"){
-    title_lab = "Protein Data Sets"
+    var_df = df %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::summarise(obs_var = var(protein_zscore[is.finite(protein_zscore)], na.rm = T))
   }
   if(type == "mrna"){
-    title_lab = "mRNA Data Sets"
+    if(organism == "human"){
+      symbol_list = unique(df$SYMBOL)
+      gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = symbol_list, keytype = "SYMBOL", columns = c("UNIPROT"))
+    }
+    if(organism == "mouse"){
+      symbol_list = unique(df$SYMBOL)
+      gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = symbol_list, keytype = "SYMBOL", columns = c("UNIPROT"))
+    }
+    df = df %>% merge(gene_rec)
+    var_df = df %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::summarise(obs_var = var(mrna_zscore, na.rm = T))
   }
-
-  # merge sources of variability
-  df = merge(var_df, cor_df)
-
-  # draw plot
-  g = ggplot(df, mapping = aes(x = av_var, y = cors)) +
-    geom_point() +
-    ggtitle(title_lab) +
-    xlab("Average Across Clusters Variance of Z Transformed Observations") +
-    ylab("Average Across Clusters Within Modality Correlation") +
-    theme(text = element_text(size = 25),
-          axis.text = element_text(size = 20),
-          axis.title = element_text(size = 20),
-          legend.key.size = unit(2, "cm"),
-          legend.position = "bottom",
-          panel.background = element_rect(fill = 'white', color = "slategray4"),
-          panel.grid.major = element_line(color = 'slategray2'),
-          panel.grid.minor = element_line(color = 'slategray1'))
-  return(g)
+  return(var_df)
 }
 
-# compute across clusters mrna, protein correlation for observed lfcs (or correlation across data sets)
-compute_across_clusters_correlations = function(mrna_z, protein_z, type = "multi_modal", mrna_symbol = TRUE, protein_symbol = FALSE, human = TRUE){
-  # unify gene labels based on whether mrna is denoted as symbol and organism type
+compute_across_clusters_correlations = function(mrna_z, protein_z, type = "multi_modal", mrna_symbol = TRUE, protein_symbol = FALSE, human = TRUE, clusters = NULL){
   if(mrna_symbol == TRUE & human == TRUE){
     symbol_list = unique(mrna_z$SYMBOL)
     gene_rec = AnnotationDbi::select(org.Hs.eg.db, keys = symbol_list, keytype = "SYMBOL", columns = c("UNIPROT"))
@@ -592,22 +532,33 @@ compute_across_clusters_correlations = function(mrna_z, protein_z, type = "multi
     gene_rec = AnnotationDbi::select(org.Mm.eg.db, keys = symbol_list, keytype = "SYMBOL", columns = c("UNIPROT"))
     protein_z = protein_z %>% merge(gene_rec)
   }
-
-  # if multi modal, compute mrna, protein across modality correlation across cell types
-  if(type == "multi_modal"){
-    cor_df = mrna_z %>% merge(protein_z) %>% dplyr::group_by(UNIPROT) %>% dplyr::summarise(cors = cor(mrna_zscore, protein_zscore, use = "pairwise.complete.obs"))
+  if(!is.null(clusters)){
+    mrna_z = mrna_z %>% filter(ct %in% clusters)
+    protein_z = protein_z %>% filter(ct %in% clusters)
   }
 
-  # if mrna only, compute correlation across data sets across cell types
+  if(type == "multi_modal"){
+    protein_z = protein_z %>% mutate(protein_zscore = ifelse(is.finite(protein_zscore), protein_zscore, NA))
+    cor_df = mrna_z %>%
+      merge(protein_z) %>%
+      filter(is.finite(mrna_zscore) & is.finite(protein_zscore)) %>%
+      dplyr::group_by(UNIPROT) %>%
+      dplyr::summarise(cors = cor(mrna_zscore, protein_zscore, use = "pairwise.complete.obs"), n_ct = sum(is.finite(mrna_zscore*protein_zscore)))
+
+  }
   if(type == "mrna"){
     cor_df = mrna_z %>% dplyr::mutate(mrna_df1_zscore = mrna_zscore) %>% dplyr::select(-mrna_zscore) %>% merge(protein_z) %>%
-      dplyr::group_by(UNIPROT) %>% dplyr::summarise(cors = cor(mrna_zscore, mrna_df1_zscore, use = "pairwise.complete.obs"))
-  }
+      filter(is.finite(mrna_zscore) & is.finite(mrna_df1_zscore)) %>%
+      dplyr::group_by(UNIPROT) %>% dplyr::summarise(cors = cor(mrna_zscore, mrna_df1_zscore, use = "pairwise.complete.obs"), n_ct = length(unique(ct)))
 
-  # if protein only, compute correlation across data sets across cell types
+  }
   if(type == "protein"){
-    cor_df = mrna_z %>% dplyr::mutate(protein_df1_zscore = protein_zscore) %>% dplyr::select(-c(protein_zscore, protein_logmean)) %>% merge(protein_z) %>%
-      dplyr::group_by(UNIPROT) %>% dplyr::summarise(cors = cor(protein_df1_zscore, protein_zscore, use = "pairwise.complete.obs"))
+    mrna_z = mrna_z %>% mutate(protein_zscore = ifelse(is.finite(protein_zscore), protein_zscore, NA))
+    protein_z = protein_z %>% mutate(protein_zscore = ifelse(is.finite(protein_zscore), protein_zscore, NA))
+    cor_df = mrna_z %>% dplyr::mutate(protein_df1_zscore = protein_zscore) %>% dplyr::select(-c(protein_zscore)) %>% merge(protein_z) %>%
+      filter(is.finite(protein_df1_zscore) & is.finite(protein_zscore)) %>%
+      dplyr::group_by(UNIPROT) %>% dplyr::summarise(cors = cor(protein_df1_zscore, protein_zscore, use = "pairwise.complete.obs"), n_ct = length(unique(ct)))
+
   }
   return(cor_df)
 }
@@ -627,11 +578,10 @@ plot_across_clusters_correlation = function(cor_df, color_select = "gray", group
       dplyr::summarise(cor_med = median(cors))
 
     g = ggplot(cor_df, aes(x = cors, y = var_group, fill = var_group)) +
-      # geom_density_ridges(, alpha = 0.5) +
       stat_density_ridges(quantile_lines = TRUE, quantiles = 2, alpha = 0.5) +
-      # geom_vline(data = cor_summary, aes(xintercept = cor_med)) +
-      colorspace::scale_fill_discrete_sequential(palette = "Plasma", name = "Protein |LFC|") +
+      colorspace::scale_fill_discrete_qualitative(palette = "Cold", name = "Protein Across Clusters Correlation") +
       scale_y_discrete(labels = function(x) str_wrap(x, width = 0)) +
+      xlim(-1, 1) +
       xlab("Across Clusters Correlation") +
       theme(text = element_text(size = 35),
             axis.text = element_text(size = 20),
@@ -658,9 +608,39 @@ plot_across_clusters_correlation = function(cor_df, color_select = "gray", group
   return(g)
 }
 
-# compute correlation across genes for all pairs of cells
-compute_across_gene_correlations = function(df, df_info, cluster_select = NULL, type = "mrna"){
-  # function to compute pairwise correlation
+plot_across_clusters_corr_joined = function(mrna_cor_df, prot_cor_df, multi_cor_df, color_select = c("red", "blue", "gray"), group_ref = NULL){
+  mrna_cor_df = mrna_cor_df %>% mutate(cor_type = "mRNA")
+  prot_cor_df = prot_cor_df %>% mutate(cor_type = "Protein")
+  multi_cor_df = multi_cor_df %>% mutate(cor_type = "Across Modalities")
+  cor_df = rbind(mrna_cor_df, prot_cor_df) %>%
+    rbind(multi_cor_df) %>%
+    merge(group_ref) %>%
+    mutate(cor_type = factor(cor_type, levels = c("mRNA", "Protein", "Across Modalities"))) %>%
+    na.omit()
+
+  text_df = cor_df %>%
+    dplyr::group_by(var_group, cor_type) %>%
+    dplyr::summarise(cor_med = median(cors, na.rm = T),
+                     med_lab = round(cor_med, 2)) %>%
+    dplyr::mutate(cor_y = ifelse(cor_type == "mRNA", 0.5, cor_med + 0.05))
+
+    g = ggplot(cor_df, aes(y = cors, x = var_group)) +
+      # stat_density_ridges(quantile_lines = TRUE, quantiles = 2, alpha = 0.5) +
+      geom_violin(draw_quantiles = c(0.5)) +
+      # scale_fill_manual(guide = "none", values = color_select) +
+      facet_grid(. ~ cor_type) +
+      xlim(-1, 1) +
+      scale_x_discrete(labels = function(x) str_wrap(x, width = 0)) +
+      geom_text(data = text_df, mapping = aes(x = var_group, y = cor_y, label = med_lab), size = 15) +
+      ylab("Across Clusters Correlation") +
+      theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
+            panel.grid.major = element_line(color = 'slategray2'),
+            panel.grid.minor = element_line(color = 'slategray1'))
+
+  return(g)
+}
+
+compute_across_gene_correlations = function(df, df_info, cluster_select = NULL, type = "mrna", protein_label = "prot"){
   compute_cors = function(cell_ids, df){
     cells = intersect(unique(cell_ids$id), unique(colnames(df)))
     ct = unique(cell_ids$ct)
@@ -668,32 +648,26 @@ compute_across_gene_correlations = function(df, df_info, cluster_select = NULL, 
     cors = cor(df, use = "pairwise.complete.obs")
     cors = cors[lower.tri(cors)]
     cor_df = data.frame(cor = cors, ct = ct)
-    print(head(cor_df))
-    print(mean(is.na(cor_df$cor)))
     return(cor_df)
   }
-
-  # subset to preselected clusters optional
   if(!is.null(cluster_select)){
     df_info = df_info %>% filter(ct %in% cluster_select)
   }
-
-  # format based on selected modality (collapse to protein level for peptides)
   if(type == "mrna"){
     df = data.frame(as.matrix(df))
   }
-  if(type == "protein"){
-    df = df %>%
-      dplyr::select(-pep) %>%
-      mutate_at(vars(-("prot")), function(x) as.numeric(as.character(x))) %>%
-      dplyr::group_by(prot)  %>%
-      summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
-  }
+    if(type == "protein"){
+        df[["prot"]] = df[[protein_label]]
+        df = df %>%
+             dplyr::select(-pep) %>%
+             mutate_at(vars(-c(protein_label, prot)), function(x) as.numeric(as.character(x))) %>%
+             dplyr::group_by(prot)  %>%
+             summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
+    }
 
-  # apply correlation computation function
-  cell_ids = df_info %>% na.omit() %>% group_split(ct)
-  cor_df = lapply(cell_ids, function(x) compute_cors(x, df)) %>% list.rbind()
-  return(cor_df)
+    cell_ids = df_info %>% na.omit() %>% group_split(ct)
+    cor_df = lapply(cell_ids, function(x) compute_cors(x, df)) %>% list.rbind()
+    return(cor_df)
 }
 
 # plot across genes correlation for supplied data frame of pairwise correlations
@@ -720,68 +694,13 @@ plot_across_gene_correlations = function(cor_df, type_label = "mRNA", color_leve
   return(g)
 }
 
-# function to return posterior samples of mu, r, and mu + r
-extract_ratios = function(stan_fit, gene_map, clusters){
-  posterior_draws = stan_fit %>%
-    spread_draws(mu[gene_num, celltype_num], r[gene_num, celltype_num]) %>%
-    ungroup() %>%
-    mutate(prot = mu + r,
-           UNIPROT = gene_map$UNIPROT[gene_num],
-           ct = clusters[celltype_num])
-  return(posterior_draws)
-}
-
-# test r = 0 at gene level, using 95 pct interval or expected proportion of false discoveries
-# put in posterior draws of mu, r, mu + r, or stan fit directly
-# outputs data frame containing posterior summaries and gene, celltype test results
-test_genes = function(posterior_draws = NULL, stan_fit = NULL, gene_map = NULL, clusters = NULL){
-  if(is.null(posterior_draws)){ # extract posterior draws if neccesary
-    print("extracting ratios")
-    posterior_draws = extract_ratios(stan_fit = stan_fit, gene_map = gene_map, clusters = clusters)
-  }
-  gene_res = posterior_draws %>%
-    na.omit() %>%
-    dplyr::group_by(UNIPROT, ct) %>%
-    dplyr::summarise(mu_av = mean(mu, na.rm = T), # posterior summaries mu
-                     mu_lwr = quantile(mu, 0.025), na.rm = T,
-                     mu_upr = quantile(mu, 0.975, na.rm = T),
-                     mu_med = median(mu, na.rm = T),
-                     r_av = mean(r), # posterior summaries r
-                     r_lwr = quantile(r, 0.025, na.rm = T),
-                     r_upr = quantile(r, 0.975, na.rm = T),
-                     r_med = median(r, na.rm = T),
-                     prot_av = mean(prot, na.rm = T), # posterior samples prot
-                     prot_lwr = quantile(prot, 0.025, na.rm = T),
-                     prot_upr = quantile(prot, 0.975, na.rm = T),
-                     prot_med = median(prot, na.rm = T),
-                     r_0 = r_lwr <= 0 & r_upr >= 0, # posterior interval contains 0
-                     int_size = abs(r_upr - r_lwr)) %>% # interval size
-    ungroup() %>%
-    dplyr::group_by(UNIPROT) %>%
-    dplyr::mutate(n_ct = length(intersect(unique(ct[is.finite(mu_av)]), unique(ct[is.finite(prot_av)])))) %>% # compute number of cel types observed
-    ungroup() %>%
-    na.omit() %>%
-    mutate(significant = !r_0) # interval contains 0
-  return(gene_res)
-}
-
-#  compute 95 pct interval for mrna, protein correlation for significant genes
-compute_significant_intervals = function(posterior_draws, gene_res){
-
-  # filter to significant genes
-  genes = gene_res %>%
-    dplyr::filter(significant == TRUE) %>%
-    pull(UNIPROT) %>%
-    unique()
-
-  # compute across cell types correlation of mrna, protein for each posterior draw, genes
+compute_significant_intervals = function(posterior_draws){
   sig_intervals = posterior_draws %>%
-    dplyr::filter(UNIPROT %in% genes) %>%
     dplyr::group_by(UNIPROT, .iteration, .chain) %>%
     dplyr::summarise(mu_prot_cor = cor(mu, prot, use = "pairwise.complete.obs"),
                      n_ct = length(unique(ct))) %>%
     dplyr::ungroup() %>%
-    dplyr::group_by(UNIPROT) %>% # for each gene, compute posterior 95 pct interval of correlation
+    dplyr::group_by(UNIPROT) %>%
     dplyr::summarise(cor_lwr = quantile(mu_prot_cor, 0.025),
                      cor_upr = quantile(mu_prot_cor, 0.975),
                      cor_med = median(mu_prot_cor),
@@ -809,17 +728,11 @@ plot_significant_intervals = function(sig_intervals, gene_res, ct_select, organi
   g = ggplot(data = sig_intervals, mapping = aes(x = fct_inorder(GENENAME), y = cor_med)) +
     geom_hline(yintercept = 0, linetype = 3) +
     geom_point(color = "purple") +
-    geom_linerange(aes(ymin = cor_lwr, ymax = cor_upr), color = sig_color) +
-    # ggtitle("mRNA, Protein Across Cell Type Correlation Posterior Intervals") +
-    ylab(paste(ct_select, "95 Pct Across Cell Types Correlation")) +
+    geom_linerange(aes(ymin = cor_lwr, ymax = cor_upr), color = sig_color, linewidth = 6) +
+    ylab(paste(ct_select, "Across Cell Types Correlation")) +
     scale_x_discrete(labels = function(x) str_wrap(x, width = 27)) +
     xlab("") +
-    # scale_color_continuous(name = "Number Of Cell Types Observed") +
-    theme(text = element_text(size = 35),
-          axis.text = element_text(size = 20),
-          axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
-          legend.key.size = unit(2, "cm"),
-          legend.position = "bottom",
+    theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
           panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
           panel.grid.minor = element_line(color = 'slategray1'))
@@ -858,14 +771,10 @@ plot_posterior_means = function(gene_res, posterior_interval = "none", facet_col
     facet_wrap(~ct, ncol = facet_col) +
     xlab("mRNA Posterior Mean") +
     ylab("Protein Posterior Mean") +
-    # ggtitle("mRNA and Protein Posterior Means by Gene and Celltype") +
-    scale_color_manual(name = test_name, values = c("gray47", sig_color)) +
+    scale_color_manual(guide = "none", values = c("gray47", sig_color)) +
     scale_size_manual(values = c(3, 4.5), guide = "none") +
     scale_alpha_manual(values = c(0.45, 0.75), guide = "none") +
-    theme(text = element_text(size = 35),
-          legend.key.size = unit(2, "cm"),
-          legend.position = "bottom",
-          panel.background = element_rect(fill = 'white', color = "slategray4"),
+    theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
           panel.grid.minor = element_line(color = 'slategray1'))
 
@@ -941,17 +850,45 @@ plot_cor_across_genes = function(posterior_draws, y_lab = 450){
   return(g)
 }
 
-# return posterior means of scale parameter
-# put in stan fit and gene mapping
-extract_scale = function(stan_fit, gene_map){
-  scale_info = stan_fit %>% # use tidybayes to pull out scale parameter
+compute_r_sq = function(posterior_draws, stan_fit, gene_map, protein_suff_sample){
+  print("starting")
+  scale_info =  stan_fit %>%
     spread_draws(scale_param[gene_num]) %>%
     ungroup() %>%
-    mutate(UNIPROT = gene_map$UNIPROT[gene_num], #organize by gene
-           multiplier = 1/scale_param) # value that's actually multiplied by mu + r for each gene for get protein
-  scale_means = scale_info %>% dplyr::group_by(UNIPROT) %>% dplyr::summarise(scale_av = mean(multiplier))
+    dplyr::mutate(UNIPROT = gene_map$UNIPROT[gene_num], #organize by gene
+                  multiplier = 1/scale_param)
+  print("scale done")
+  posterior_draws = posterior_draws %>%
+    merge(scale_info) %>%
+    dplyr::mutate(prot_scaled = multiplier*prot) %>%
+    dplyr::group_by(UNIPROT, .iteration, .chain) %>%
+    dplyr::summarise(signal_var = var(prot_scaled),
+                     signal_var_unscaled = var(prot))
+  print("draws done")
+  protein_suff_sample = protein_suff_sample %>% dplyr::mutate(obs_num = row_number())
+  print(head(protein_suff_sample))
 
-  return(scale_means)
+  r_sq_info = stan_fit %>%
+    spread_draws(protein_sd[obs_num]) %>%
+    dplyr::mutate(noise_var = protein_sd^2) %>%
+    merge(protein_suff_sample) %>%
+    dplyr::group_by(UNIPROT, pop_protein, .iteration, .chain) %>%
+    dplyr::summarise(noise_var = mean(noise_var, na.rm = T),
+                     npep = mean(npep_ct, na.rm = T)) %>%
+    merge(posterior_draws)
+
+  print("part 1")
+  r_sq_info = r_sq_info %>%
+    dplyr::mutate(r_sq = signal_var/(signal_var + noise_var),
+                  r_sq_unscaled = signal_var_unscaled/(signal_var + noise_var)) %>%
+    dplyr::group_by(UNIPROT, pop_protein) %>%
+    dplyr::summarise(r_sq_lwr = quantile(r_sq, 0.025, na.rm = T),
+                     r_sq_med = median(r_sq, na.rm = T),
+                     r_sq_upr = quantile(r_sq, 0.975, na.rm = T),
+                     r_sq_lwr_unscaled = quantile(r_sq_unscaled, 0.025, na.rm = T),
+                     r_sq_med_unscaled = median(r_sq_unscaled, na.rm = T),
+                     r_sq_upr_unscaled = quantile(r_sq_unscaled, 0.975, na.rm = T))
+  return(r_sq_info)
 }
 
 # input posterior means for scale parameter or scale posterior means
@@ -1040,17 +977,6 @@ plot_mu_r_cov = function(posterior_draws = NULL, scale_means = NULL, type = "cor
   return(g)
 }
 
-# extract protein column normalization term. input stan fit and vector of cluster order
-extract_b = function(stan_fit, clusters, n_protein = 2){
-  protein_pop_order = paste0("Pop", 1:n_protein)
-  # collect posterior draws for protein cell type, data set technical term
-  b_info = stan_fit %>%
-    spread_draws(b_protein[protein_pop_num, celltype_num]) %>%
-    mutate(ct = clusters[celltype_num],
-           pop_protein = protein_pop_order[protein_pop_num])
-  return(b_info)
-}
-
 # plot posterior draws of column normalization term. input b draws or stan fit with necessary information
 plot_b = function(b_info = NULL, stan_fit = NULL, clusters = NULL){
   if(is.null(b_info)){
@@ -1072,17 +998,40 @@ plot_b = function(b_info = NULL, stan_fit = NULL, clusters = NULL){
   return(g)
 }
 
-# function that returns posterior means of kappa for each gene, data set
-extract_kappa = function(stan_fit, gene_map, n_protein){
+kappa_r_info = function(stan_fit, gene_map, clusters, n_protein){
   protein_pop_order = paste0("Pop", 1:n_protein)
-  # collect posterior draws for protein gene, data set technical effect
   kappa_info = stan_fit %>%
     spread_draws(kappa[protein_pop_num, gene_num]) %>% # extract posterior draws
     mutate(UNIPROT = gene_map$UNIPROT[gene_num],
-           pop_protein = protein_pop_order[protein_pop_num]) %>%
-    dplyr::group_by(pop_protein, UNIPROT) %>%
-    dplyr::summarise(kappa_av = mean(kappa)) # compute posterior mean
-  return(kappa_info)
+           pop_protein = protein_pop_order[protein_pop_num])
+
+  r_info = stan_fit %>%
+    spread_draws(mu[gene_num, celltype_num], r[gene_num, celltype_num]) %>%
+    ungroup() %>%
+    mutate(prot = mu + r,
+           UNIPROT = gene_map$UNIPROT[gene_num],
+           ct = clusters[celltype_num])
+
+  kappa_r_info = merge(kappa_info, r_info)
+  return(kappa_r_info)
+}
+
+gamma_r_info = function(stan_fit, gene_map, clusters, n_mrna){
+  mrna_pop_order = paste0("Pop", 1:n_mrna)
+  gamma_info = stan_fit %>%
+    spread_draws(gamma[mrna_pop_num, gene_num]) %>%
+    mutate(UNIPROT = gene_map$UNIPROT[gene_num],
+           pop_mrna = mrna_pop_order[mrna_pop_num])
+
+  r_info = stan_fit %>%
+    spread_draws(mu[gene_num, celltype_num], r[gene_num, celltype_num]) %>%
+    ungroup() %>%
+    mutate(prot = mu + r,
+           UNIPROT = gene_map$UNIPROT[gene_num],
+           ct = clusters[celltype_num])
+
+  gamma_r_info = merge(gamma_info, r_info)
+  return(gamma_r_info)
 }
 
 # function to plot posterior means of kappa
@@ -1107,19 +1056,6 @@ plot_kappa = function(kappa_info = NULL, stan_fit = NULL, gene_map = NULL, n_pro
   return(g)
 }
 
-# function that returns posterior means of gamma for each gene, data set
-extract_gamma = function(stan_fit, gene_map, n_mrna){
-  mrna_pop_order = paste0("Pop", 1:n_mrna)
-  # collect posterior samples for mrna gene, data set effect
-  gamma_info = stan_fit %>%
-    spread_draws(gamma[mrna_pop_num, gene_num]) %>%
-    mutate(UNIPROT = gene_map$UNIPROT[gene_num],
-           pop_mrna = mrna_pop_order[mrna_pop_num]) %>%
-    dplyr::group_by(pop_mrna, UNIPROT) %>%
-    dplyr::summarise(gamma_av = mean(gamma)) # compute posterior mean
-  return(gamma_info)
-}
-
 # plot posteiror means of gamma
 plot_gamma = function(gamma_info = NULL, stan_fit = NULL, gene_map = NULL, n_mrna = NULL){
   if(is.null(gamma_info)){
@@ -1140,17 +1076,6 @@ plot_gamma = function(gamma_info = NULL, stan_fit = NULL, gene_map = NULL, n_mrn
           panel.grid.minor = element_line(color = 'slategray1'))
 
   return(g)
-}
-
-# function that returns posterior samples of a (column normalization term)
-extract_a = function(stan_fit, clusters, n_mrna){
-  mrna_pop_order = paste0("Pop", 1:n_mrna)
-  # extract mrna data set, cell type effect
-  a_info = stan_fit %>%
-    spread_draws(a_mrna[mrna_pop_num, celltype_num]) %>%
-    mutate(ct = clusters[celltype_num],
-           pop_mrna = mrna_pop_order[mrna_pop_num])
-  return(a_info)
 }
 
 # plot density of column normalization term
@@ -1311,104 +1236,123 @@ compute_correlation_comparison = function(gene_res, posterior_draws, prep_list){
 }
 
 # returns point plot displaying observed and model-fit correlations
-plot_correlation_comparison_med = function(cor_comparison){
-  cor_info = cor_comparison %>% dplyr::group_by(UNIPROT) %>% dplyr::summarise(n_ct_pop1 = round(median(n_ct_pop1, na.rm = T)), # use across-data set medians
-                                                                              n_ct_pop2 = round(median(n_ct_pop2, na.rm = T)),
-                                                                              param_cor = median(param_cor, na.rm = T),
-                                                                              pop1_cor = median(pop1_cor, na.m = T),
-                                                                              pop2_cor = median(pop2_cor, na.rm = T),
-                                                                              param_cor_lwr = median(param_cor_lwr, na.rm = T),
-                                                                              param_cor_upr = median(param_cor_upr, na.rm = T))
-
-  lab_df2 = cor_info %>% # compare intervals above and below y=x
-    mutate(above1 = param_cor >= pop1_cor, # record whether fitted correlation is higher than observed for each data set
-           above2 = param_cor >= pop2_cor)
-
-  lab1 = lab_df2 %>%
-    dplyr::mutate(yex = param_cor_lwr <= pop1_cor & param_cor_upr >= pop1_cor) %>%
-    dplyr::group_by(above1) %>%
-    dplyr::summarise(cover1 = mean(yex, na.rm = T),
-                     l1 = ifelse(above1 == TRUE, paste("Above mRNA Pop1 Coverage =", round(cover1, 2)), paste("Below mRNA Pop1 Coverage =", round(cover1, 2))),
-                     x = ifelse(above1 == TRUE, -0.5, -0.25),
-                     y = ifelse(above1 == TRUE, 0, -0.75)) %>%
-    ungroup()
-
-  lab2 = lab_df2 %>%
-    dplyr::mutate(yex = param_cor_lwr <= pop2_cor & param_cor_upr >= pop2_cor) %>%
-    dplyr::group_by(above2) %>%
-    dplyr::summarise(cover2 = mean(yex, na.rm = T),
-                     l2 = ifelse(above2 == TRUE, paste("Above mRNA Pop2 Coverage =", round(cover2, 2)), paste("Below mRNA Pop2 Coverage =", round(cover2, 2))),
-                     x = ifelse(above2 == TRUE, -0.5, -0.25),
-                     y = ifelse(above2 == TRUE, -0.1, -0.85)) %>%
-    ungroup()
+plot_correlation_comparison_med = function(cor_comparison, gene_res){
+  gene_res = gene_res %>% dplyr::group_by(UNIPROT) %>% dplyr::summarise(sig = sum(significant) >= 1) %>% ungroup()
+  cor_info = cor_comparison %>%
+    dplyr::group_by(UNIPROT) %>%
+    dplyr::summarise(n_ct_pop1 = round(median(n_ct_pop1, na.rm = T)), # use across-data set medians
+                     n_ct_pop2 = round(median(n_ct_pop2, na.rm = T)),
+                     param_cor = median(param_cor, na.rm = T),
+                     pop1_cor = median(pop1_cor, na.m = T),
+                     pop2_cor = median(pop2_cor, na.rm = T),
+                     param_cor_lwr = median(param_cor_lwr, na.rm = T),
+                     param_cor_upr = median(param_cor_upr, na.rm = T)) %>%
+    ungroup() %>%
+    merge(gene_res)
 
   # draw main plot
   g1 = ggplot() +
     geom_point(data = cor_info,
-               aes(y = param_cor, x = pop1_cor, color = n_ct_pop1), size = 3) +
+               aes(y = param_cor, x = pop1_cor, color = sig, alpha = sig, size = sig)) +
     geom_point(data = cor_info,
-               aes(y = param_cor, x = pop2_cor, color = n_ct_pop1), size = 3) +
+               aes(y = param_cor, x = pop2_cor, color = sig, alpha = sig, size = sig)) +
     geom_abline(color = "red") +
     geom_smooth(method = "lm", se = FALSE, color = "blue", alpha = 1) +
     xlab("Median Empirical Correlation") +
     ylab("Posterior Mean Correlation") +
     scale_x_continuous(limits=c(-1, 1), expand = c(0, 0)) +
     scale_y_continuous(limits=c(-1, 1), expand = c(0, 0)) +
-    scale_color_continuous_sequential(palette = "Viridis", name = "Number of Cell Types Observed") +
-    # geom_label(data = lab1, aes(x = x, y = y, label = l1), color = "black", alpha = 1, size = 6) +
-    # geom_label(data = lab2, aes(x = x, y = y, label = l2), color = "black", alpha = 1, size = 6) +
-    theme(plot.margin = unit(c(0, 0, 0, 0), "cm"),
-          axis.text = element_text(size = 60),
-          axis.title = element_text(size = 60),
-          legend.key.size = unit(3, "cm"),
-          legend.position = "bottom",
-          legend.title = element_text(size=60),
+    scale_color_manual(values = c("gray47", "purple"), name = "Significant rPTR") +
+    scale_alpha_manual(values = c(0.5, 1), guide = "none") +
+    scale_size_manual(values = c(4, 6), guide = "none") +
+    guides(color = guide_legend(override.aes = list(size=10))) +
+    # scale_color_continuous_sequential(palette = "Viridis", name = "Number of Cell Types Observed") +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "pt"),
+          # panel.margin = unit(c(0, 0, 0, 0), "null"),
           panel.background = element_rect(fill = 'white', color = "slategray4"),
           panel.grid.major = element_line(color = 'slategray2'),
-          panel.grid.minor = element_line(color = 'slategray1'))
+          panel.grid.minor = element_line(color = 'slategray1'),
+          legend.position = "bottom",
+          text = element_text(size = 40),
+          legend.key.size = unit(2, "cm"))
+
+  # g = ggExtra::ggMarginal(g1, type = "density", groupColour = T) #, xparams = list(alpha = 0.25), yparams = list(alpha = 0.25))
 
   # prepare data for marginal plot
   cor_info_piv = pivot_longer(cor_comparison, cols = c("pop1_cor", "pop2_cor"), values_to = "pop_cor") %>%
-                 pivot_longer(cols = c("n_ct_pop1", "n_ct_pop2"), values_to = "n_ct", names_to = "n_ct_pop")
-  g2_lab = cor_info_piv %>% dplyr::summarise(pop_med = median(pop_cor, na.rm = T),
+                 pivot_longer(cols = c("n_ct_pop1", "n_ct_pop2"), values_to = "n_ct", names_to = "n_ct_pop") %>%
+                 merge(gene_res)
+  g2_lab = cor_info_piv %>% dplyr::group_by(sig) %>% dplyr::summarise(pop_med = median(pop_cor, na.rm = T),
                                              lab = paste0("Median = ", round(pop_med, 2)),
                                              x = pop_med,
                                              y = 0.1)
-  param_med = median(cor_info$param_cor)
-  g3_lab = data.frame(y = 0.5, x = 3, lab = paste0("Median = ", round(param_med, 2)))
+
+  g3_lab = cor_info %>% dplyr::group_by(sig) %>% dplyr::summarise(param_med = median(param_cor, na.rm = T),
+                                                                  y = 0.5, x = 3)
 
   # draw marginal density plots
-  g2 = ggplot() +
-    geom_density(data = cor_info_piv, mapping = aes(x = pop_cor, group = n_ct, color = n_ct)) +
-    scale_color_continuous_sequential(palette = "Viridis", name = "") +
-    geom_vline(data = g2_lab, aes(xintercept = pop_med)) +
-    # geom_label(data = g2_lab, aes(x = x, y = y, label = lab), color = "black", alpha = 1, size = 15) +
+  g2 = ggplot(data = cor_info_piv, mapping = aes(x = pop_cor, color = sig)) +
+    geom_density(data = cor_info_piv, mapping = aes(x = pop_cor, color = sig, fill = sig), alpha = 0.1) +
+    geom_vline(data = g2_lab, aes(xintercept = pop_med, color = sig)) +
     scale_x_continuous(limits=c(-1, 1), expand = c(0, 0)) +
-    theme(panel.background = element_rect(fill = 'white', color = "white"),
-          legend.position = "none",
+    scale_color_manual(values = c("gray47", "purple"), guide = "none") +
+    scale_fill_manual(values = c("gray47", "purple"), guide = "none") +
+    theme(panel.background = element_rect(fill = "transparent", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          plot.margin = unit(c(0, 0, 0, 0), "pt"),
+          # panel.margin = unit(c(0, 0, 0, 0), "null"),
+          axis.ticks = element_blank(),
           axis.text = element_blank(),
           axis.title = element_blank(),
-          panel.grid.major = element_line(color = 'white'),
-          panel.grid.minor = element_line(color = 'white'),
-          axis.ticks = element_blank(),
-          plot.margin = unit(c(0, 0, 0, 0), "cm"))
+          axis.line = element_blank(),
+          legend.position = "none",
+          axis.ticks.length = unit(0, "pt"),
+          axis.ticks.margin = unit(0, "pt"),
+          legend.margin = unit(0, "pt"))
+  # theme(panel.background = element_rect(fill = 'white', color = "white"),
+  #         axis.text = element_blank(),
+  #         axis.title = element_blank(),
+  #         panel.grid.major = element_line(color = 'white'),
+  #         panel.grid.minor = element_line(color = 'white'),
+  #         axis.ticks = element_blank(),
+  #         plot.margin = unit(c(0, 0, 0, 0), "cm"),
+  #         axis.ticks.length = unit(0, "pt"))
 
   # marginal plot for fitted parameter
-  g3 = ggplot() +
-    geom_density(data = cor_info, mapping = aes(y = param_cor)) +
-    geom_hline(yintercept = param_med) +
-    # geom_label(data = g3_lab, aes(x = x, y = y, label = lab), color = "black", alpha = 1, size = 15) +
+  g3 = ggplot(data = cor_info, mapping = aes(y = param_cor, color = sig)) +
+    geom_density(data = cor_info, mapping = aes(y = param_cor, color = sig, fill = sig), alpha = 0.1) +
+    geom_hline(data = g3_lab, aes(yintercept = param_med, color = sig)) +
     scale_y_continuous(limits=c(-1, 1), expand = c(0, 0)) +
-    theme(panel.background = element_rect(fill = 'white', color = "white"),
+    scale_color_manual(values = c("gray47", "purple"), guide = "none") +
+    scale_fill_manual(values = c("gray47", "purple"), guide = "none") +
+    theme(panel.background = element_rect(fill = "transparent", colour = NA),
+          plot.background = element_rect(fill = "transparent", colour = NA),
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          plot.margin = unit(c(0, 0, 0, 0), "pt"),
+          panel.margin = unit(c(0, 0, 0, 0), "pt"),
+          axis.ticks = element_blank(),
           axis.text = element_blank(),
           axis.title = element_blank(),
-          axis.ticks = element_blank(),
-          panel.grid.major = element_line(color = 'white'),
-          panel.grid.minor = element_line(color = 'white'),
-          plot.margin = unit(c(0, 0, 0, 0), "cm"))
+          axis.line = element_blank(),
+          legend.position = "none",
+          axis.ticks.length = unit(0, "pt"),
+          axis.ticks.margin = unit(0, "pt"),
+          legend.margin = unit(0, "pt"))
+    # theme(panel.background = element_rect(fill = 'white', color = "white"),
+    #       axis.text = element_blank(),
+    #       axis.title = element_blank(),
+    #       axis.ticks = element_blank(),
+    #       panel.grid.major = element_line(color = 'white'),
+    #       panel.grid.minor = element_line(color = 'white'),
+    #       plot.margin = unit(c(0, 0, 0, 0), "cm"),
+    #       axis.ticks.length = unit(0, "pt"))
 
   # use patchwork to combine into one plot
-  g = (((g2 / g1) + plot_layout(height = c(0.35, 2.5))) | ((plot_spacer() / g3) + plot_layout(height = c(0.35, 2.5)))) + plot_layout(width = c(2.5, 0.2))
+  # g = (g2 + plot_spacer()) + plot_layout(height = c(1, 1), width = c(4, 1)) / (wrap_elements(full = g1) + g3) + plot_layout(height = c(4, 4), width = c(4, 1))
+  g = (((g2 / g1) + plot_layout(height = c(1, 4)) + plot_annotation(theme = theme(plot.margin = margin(0, 0, 0, 0)))) | ((plot_spacer() / g3) + plot_layout(height = c(1, 4)))) + plot_layout(width = c(4, 1))
   return(g)
 }
 
@@ -1458,21 +1402,26 @@ plot_correlation_comparison_grid = function(cor_comparison){
   return(g)
 }
 
-# function that returns posterior predictive draws of mrna data set
-extract_mrna_ppc = function(prep_list, stan_fit){
-  mrna_ppc = stan_fit %>% # extract in vector form
-    spread_draws(mrna_sum_rep[total_obs_mrna]) %>%
-    ungroup()
-
-  mrna = prep_list$mrna
-  mrna_ppc = mrna %>%
-    dplyr::mutate(total_obs_mrna = row_number(),
-                  scaled_counts = mrna_sum/counts) %>% # scale mrna counts
-    base::merge(mrna_ppc) %>% # combine posterior predictive and observed values
-    mutate(mrna_bar_rep_counts = mrna_sum_rep/counts) %>% # scale total counts
-    filter(is.finite(mrna_bar_rep_counts))
-  return(mrna_ppc)
+compute_mrna_ppc_comparison = function(mrna_ppc){
+  ppc_comp = mrna_ppc %>%
+    dplyr::group_by(UNIPROT, ct, .iteration, .chain) %>%
+    dplyr::summarise(ppc_var = sd(mrna_bar_rep_counts, na.rm = T),
+                     ppc_var_rescale = sd(mrna_bar_rep_counts/mean(mrna_bar_rep_counts, na.rm = T), na.rm = T),
+                     av_var = sd(scaled_counts, na.rm = T),
+                     av_var_rescale = sd(scaled_counts/mean(scaled_counts, na.rm = T), na.rm = T)) %>%
+    ungroup() %>%
+    dplyr::group_by(UNIPROT, ct) %>%
+    dplyr::summarise(ppc_var_lwr = quantile(ppc_var, 0.025, na.rm = T),
+                     ppc_var_med = median(ppc_var, na.rm = T),
+                     ppc_var_upr = quantile(ppc_var, 0.975, na.rm = T),
+                     ppc_var_lwr_rescale = quantile(ppc_var_rescale, 0.025, na.rm = T),
+                     ppc_var_med_rescale = median(ppc_var_rescale, na.rm = T),
+                     ppc_var_upr_rescale = quantile(ppc_var_rescale, 0.975, na.rm = T),
+                     av_var = median(av_var, na.rm = T),
+                     av_var_rescale = median(av_var_rescale, na.rm = T))
+  return(ppc_comp)
 }
+
 
 compute_mrna_ppc_variance = function(mrna_ppc){
   ppc_var_plot = mrna_ppc %>%
@@ -1480,8 +1429,8 @@ compute_mrna_ppc_variance = function(mrna_ppc){
     dplyr::summarise(ppc_var = var(mrna_bar_rep_counts), # use variance based on counts scaled by total transcript counts
                      ppc_var_rescale = var(mrna_bar_rep_counts/mean(mrna_bar_rep_counts)), # optionally rescale by mean so variances aren't so small
                      n_c = sum(n_cells),
-                     av_var = var(scaled_counts), # compute variance
-                     av_var_rescale = var((scaled_counts)/mean(scaled_counts))) %>% # scale variance by mean
+                     av_var = var(scaled_counts),
+                     av_var_rescale = var((scaled_counts)/mean(scaled_counts))) %>%
     ungroup() %>%
     dplyr::group_by(UNIPROT, pop_mrna) %>% # record posterior predictive intervals
     dplyr::summarise(ppc_var_lwr = quantile(ppc_var, 0.025, na.rm = T),
@@ -1589,7 +1538,7 @@ plot_mrna_across_pop_var = function(ppc_var_plot, rescale = F, suspicious_genes)
 }
 
 # plot comparison of posterior predictive and observed mrna variances
-plot_mrna_ppc_variance = function(ppc_var_plot, rescale = F, viridis_type = "Viridis"){
+plot_mrna_ppc_variance = function(ppc_var_plot, rescale = F, color_select = "lightgray"){
   # draw plot. if using rescale (by mean), plot accordingly
   if(rescale == FALSE){
     ppc_coverage = ppc_var_plot %>%
@@ -1602,23 +1551,15 @@ plot_mrna_ppc_variance = function(ppc_var_plot, rescale = F, viridis_type = "Vir
              corr_lab = paste("Correlation: ", round(corr, 2)))
 
     # draw plot
-    g = ggplot(data = ppc_var_plot, aes(x = log(av_var), y = log(ppc_var_med), color = log(n_cells))) +
-      geom_point(size = 1) +
-      geom_rug() +
-      geom_errorbar(aes(ymin = log(ppc_var_lwr), ymax = log(ppc_var_upr), color = log(n_cells))) +
-      geom_abline(color = "red", alpha = 1) +
-      geom_smooth(method = "lm", se = FALSE, color = "blue", alpha = 1) +
-      facet_grid(vars(pop_mrna)) +
-      # geom_label(data = ppc_coverage, aes(x = x, y = y, label = cover_lab), color = "black", alpha = 1, size = 8) +
-      # geom_label(data = ppc_coverage, aes(x = x, y = y-3, label = corr_lab), color = "black", alpha = 1, size = 8) +
+    g = ggplot(data = ppc_var_plot, aes(x = log(av_var), y = log(ppc_var_med))) + #, color = log(n_cells))) +
+      geom_point(size = 1, color = color_select) +
+      geom_rug(color = color_select) +
+      geom_errorbar(aes(ymin = log(ppc_var_lwr), ymax = log(ppc_var_upr)), color = color_select) + #, color = log(n_cells))) +
+      geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 1) +
+      facet_grid(cols = vars(pop_mrna)) +
       xlab("Log Observed Variance") +
       ylab("Log PP Variance") +
-      scale_color_continuous_sequential(palette = viridis_type, name = "Log Number of Cells") +
-      theme(text = element_text(size = 30),
-            axis.text = element_text(size = 30),
-            legend.key.size = unit(1, "cm"),
-            legend.position = "bottom",
-            panel.background = element_rect(fill = 'white', color = "slategray4"),
+      theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
             panel.grid.major = element_line(color = 'slategray2'),
             panel.grid.minor = element_line(color = 'slategray1'))
   }
@@ -1645,22 +1586,24 @@ plot_mrna_ppc_variance = function(ppc_var_plot, rescale = F, viridis_type = "Vir
   return(g)
 }
 
-# function to extract posterior predictive samples or protein data set
-extract_protein_ppc = function(prep_list, stan_fit){
-  protein_ppc = stan_fit %>%
-    spread_draws(protein_bar_rep[total_obs_protein]) %>% # pull vector of ppcs
-    ungroup()
-  protein = prep_list$protein
-  protein_ppc = protein %>% # combine with observed protein data
-    dplyr::mutate(total_obs_protein = row_number()) %>%
-    base::merge(protein_ppc)
-  return(protein_ppc)
+compute_protein_ppc_comparison = function(protein_ppc){
+  ppc_comp = protein_ppc %>%
+    dplyr::group_by(UNIPROT, ct, .iteration, .chain) %>%
+    dplyr::summarise(ppc_var = sd(protein_bar_rep, na.rm = T),
+                     av_var = sd(pep_av, na.rm = T)) %>%
+    ungroup() %>%
+    dplyr::group_by(UNIPROT, ct) %>%
+    dplyr::summarise(ppc_var_lwr = quantile(ppc_var, 0.025, na.rm = T),
+                     ppc_var_med = median(ppc_var, na.rm = T),
+                     ppc_var_upr = quantile(ppc_var, 0.975, na.rm = T),
+                     av_var = median(av_var, na.rm = T))
+  return(ppc_comp)
 }
 
 compute_protein_ppc_variance = function(protein_ppc, protein_level = T){
   ppc_var_plot = protein_ppc %>%
     dplyr::group_by(pep, pop_protein, .iteration, .chain) %>%
-    dplyr::summarise(ppc_var = var(protein_bar_rep), # compute posterior predictive variance for each peptide, data set, draw
+    dplyr::summarise(ppc_var = var(protein_bar_rep),
                      n_c = sum(n_cells),
                      var_protein = var(pep_av, na.rm = T),
                      UNIPROT = unique(UNIPROT),
@@ -1691,7 +1634,7 @@ compute_protein_ppc_variance = function(protein_ppc, protein_level = T){
 }
 
 # function to plot posterior predictive protein variance. no rescale option, as this represents peptide-averages already
-plot_protein_ppc_variance = function(ppc_var_plot, viridis_type = "Viridis", protein_level = T){
+plot_protein_ppc_variance = function(ppc_var_plot, color_select = "lightgray", protein_level = T){
   # summary label info
   ppc_coverage = ppc_var_plot %>%
     dplyr::group_by(pop_protein) %>% # summarise information
@@ -1705,20 +1648,16 @@ plot_protein_ppc_variance = function(ppc_var_plot, viridis_type = "Viridis", pro
   ppc_var_plot = ppc_var_plot %>% mutate(n_cells = n_c)
 
   # draw plot
-  g = ggplot(data = ppc_var_plot, aes(x = log(var_protein), y = log(ppc_var_med), color = log(n_cells))) +
-    geom_point(size = 1, aes(alpha = log(n_cells))) +
+  g = ggplot(data = ppc_var_plot, aes(x = log(var_protein), y = log(ppc_var_med))) +
+    geom_point(size = 1, color = color_select) +
     geom_rug() +
-    geom_errorbar(aes(ymin = log(ppc_var_lwr), ymax = log(ppc_var_upr), color = log(n_cells), alpha = exp(log(n_c))/(1+exp(log(n_c))))) +
-    scale_color_continuous_sequential(palette = viridis_type, name = "Log Number of Cells", limits = c(0, 8), oob = scales::squish) +
-    scale_alpha(guide = 'none') +
+    geom_errorbar(aes(ymin = log(ppc_var_lwr), ymax = log(ppc_var_upr)), color = color_select) +
     geom_abline(color = "red", alpha = 1) +
-    geom_smooth(method = "lm", se = FALSE, color = "blue", alpha = 1) +
-    facet_grid(vars(pop_protein)) +
+    geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 1) +
+    facet_wrap(~pop_protein) +
     ggtitle("") +
     xlab("Log Observed Variance") +
     ylab("Log PP Variance") +
-    # geom_label(data = ppc_coverage, aes(x = x, y = y, label = cover_lab), color = "black", alpha = 1, size = 4) +
-    # geom_label(data = ppc_coverage, aes(x = x, y = y-2.5, label = corr_lab), color = "black", alpha = 1, size = 4) +
     theme(text = element_text(size = 30),
           axis.text = element_text(size = 30),
           legend.key.size = unit(1, "cm"),
@@ -1819,15 +1758,15 @@ draw_ppc_correlations = function(ppc_cor_obj){
     geom_abline(color = "red", alpha = 1) +
     geom_smooth(method = "lm", se = FALSE, color = "blue", alpha = 1) +
     facet_grid(vars(pop_protein)) +
-    # ggtitle("Protein Observed and Posterior Predictive Correlation (Across Celltypes)") +
+    ggtitle("Protein Observed and Posterior Predictive Correlation (Across Celltypes)") +
     xlab("Observed Correlation Across Celltypes") +
     ylab("PP Correlation Across Celltypes") +
     geom_label(data = g_lab, aes(x = 0.8, y = -0.5, label = pop1_coverage),
                color = "black", alpha = 1, size = 4) +
     geom_label(data = g_lab, aes(x = 0.8, y = -0.8, label = pop1_cor_lab),
                color = "black", alpha = 1, size = 4) +
-    theme(text = element_text(size = 40),
-          axis.text = element_text(size = 40),
+    theme(text = element_text(size = 20),
+          axis.text = element_text(size = 12),
           legend.key.size = unit(1, "cm"),
           legend.position = "bottom",
           panel.background = element_rect(fill = 'white', color = "slategray4"),
@@ -1851,16 +1790,12 @@ draw_ppc_correlation_density = function(ppc_cor_obj, mrna_df = "both"){
                                             ifelse(is.na(pop1_cor), pop2_cor, pop1_cor)))
     g = ggplot() +
       geom_density(data = ppc_cor, mapping = aes(x = av_ppc, color = "PP", group = .iteration, y = ..density..), position = "dodge", alpha = 0.1, size = 0.5) +
-      geom_density(data = obs_cor, mapping = aes(x = av_obs, color = "Observed", y = ..density..), position = "dodge", size = 1) +
-      scale_color_brewer(palette = "Paired", limits = c("PP", "Observed"), name = "") +
+      geom_density(data = obs_cor, mapping = aes(x = av_obs, color = "Observed", y = ..density..), position = "dodge", size = 2) +
+      scale_color_manual(values = c("lightgray", "black"), limits = c("PP", "Observed"), name = "") +
       facet_wrap(~pop_protein) +
       xlab("Across Cell Types Correlation") +
       ylab("Density") +
-      theme(text = element_text(size = 30),
-            axis.text = element_text(size = 30),
-            legend.key.size = unit(1.5, "cm"),
-            legend.position = "bottom",
-            panel.background = element_rect(fill = 'white', color = "slategray4"),
+      theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
             panel.grid.major = element_line(color = 'slategray2'),
             panel.grid.minor = element_line(color = 'white'))
   }
@@ -1868,18 +1803,14 @@ draw_ppc_correlation_density = function(ppc_cor_obj, mrna_df = "both"){
   # density plot for mRNA dataset 1
   if(mrna_df == "Pop1"){
     g = ggplot() +
-      geom_density(data = ppc_cor, mapping = aes(x = pop1_ppc, color = "Pop1 PP", group = .iteration, y = ..density..), position = "dodge", alpha = 0.1, size = 0.5) +
-      geom_density(data = obs_cor, mapping = aes(x = pop1_cor, color = "Pop1 Observed", y = ..density..), position = "dodge", size = 1) +
-      scale_color_brewer(palette = "Paired", limits = c("Pop1 PP", "Pop1 Observed"), name = "") +
+      geom_density(data = ppc_cor, mapping = aes(x = pop1_ppc, color = "mRNA Pop1 PP", group = .iteration, y = ..density..), position = "dodge", alpha = 0.1, size = 0.25) +
+      geom_density(data = obs_cor, mapping = aes(x = pop1_cor, color = "mRNA Pop1 Observed", y = ..density..), position = "dodge", size = 0.75) +
+      scale_color_manual(values = c("lightgray", "black"), limits = c("mRNA Pop1 PP", "mRNA Pop1 Observed"), name = "") +
       facet_wrap(~pop_protein) +
      # ggtitle(paste0("Posterior Predictive and Observed mRNA ", mrna_df, ", Protein Correlation Across Cell Types")) +
       xlab("Across Cell Types Correlation") +
       ylab("Density") +
-      theme(text = element_text(size = 30),
-            axis.text = element_text(size = 30),
-            legend.key.size = unit(1.5, "cm"),
-            legend.position = "bottom",
-            panel.background = element_rect(fill = 'white', color = "slategray4"),
+      theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
             panel.grid.major = element_line(color = 'slategray2'),
             panel.grid.minor = element_line(color = 'white'))
   }
@@ -1887,17 +1818,12 @@ draw_ppc_correlation_density = function(ppc_cor_obj, mrna_df = "both"){
   if(mrna_df == "Pop2"){
     g = ggplot() +
       geom_density(data = ppc_cor, mapping = aes(x = pop2_ppc, color = "Pop2 PP", group = .iteration, y = ..density..), position = "dodge", alpha = 0.1, size = 0.5) +
-      geom_density(data = obs_cor, mapping = aes(x = pop2_cor, color = "Pop2 Observed", y = ..density..), position = "dodge", size = 1) +
-      scale_color_brewer(palette = "Paired", limits = c("Pop2 PP", "Pop2 Observed"), name = "") +
+      geom_density(data = obs_cor, mapping = aes(x = pop2_cor, color = "Pop2 Observed", y = ..density..), position = "dodge", size = 2) +
+      scale_color_manual(values = c("lightgray", "black"), limits = c("Pop2 PP", "Pop2 Observed"), name = "") +
       facet_wrap(~pop_protein) +
-      # ggtitle(paste0("Posterior Predictive and Observed mRNA ", mrna_df, ", Protein Correlation Across Cell Types")) +
       xlab("Across Cell Types Correlation") +
       ylab("Density") +
-      theme(text = element_text(size = 30),
-            axis.text = element_text(size = 30),
-            legend.key.size = unit(1.5, "cm"),
-            legend.position = "bottom",
-            panel.background = element_rect(fill = 'white', color = "slategray4"),
+      theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
             panel.grid.major = element_line(color = 'slategray2'),
             panel.grid.minor = element_line(color = 'white'))
   }

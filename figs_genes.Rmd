@@ -16,110 +16,36 @@ library(colorspace)
 library(viridis)
 source("scripts/plot_functions.R")
 source("scripts/go_functions.R")
-clusters = c("EC", "LC", "PTM", "SPC", "SPG", "St")
+clusters = c("EC", "PTM", "LC", "SPG", "SPC", "St")
+
+mrna_colors = "#B2182B"
+protein_colors = "#2166AC"
+multi_colors = "lightgray"
+mrna_ppc_colors = "#FFBEC1"
+protein_ppc_colors = "#C3DBFD"
 ```
 
-```{r fig2, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
-# FIGURE 2: Empirical Across Cluster Correlations
-# load previously computed correlations
-load("model_output/m1_m2_ac_cor.RData")
-cor_df_mrna = cor_df
+```{r fig4, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
+load("model_output_hs/gene_res_centered.RData")
+load("processed_data/observed_z.RData")
+load("model_output_hs/mrna_ppc_z.RData")
+load("model_output_hs/protein_ppc_z.RData")
 
-load("model_output/p1_p2_ac_cor.RData")
-cor_df_prot = cor_df %>% mutate(pop = "P12")
+uni_select = gene_res %>% dplyr::group_by(UNIPROT) %>% dplyr::summarise(sig = sum(significant)) %>% filter(sig >= 1) %>% pull(UNIPROT)
 
-load("model_output/p1_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P14")
-cor_df_prot = cor_df_prot %>% rbind(cor_df)
-
-load("model_output/p2_p4_ac_cor.RData")
-cor_df = cor_df %>% mutate(pop = "P24")
-cor_df_prot = cor_df_prot %>% rbind(cor_df)
-
-cor_df_prot = cor_df_prot %>%
-              dplyr::group_by(UNIPROT) %>%
-              dplyr::summarise(cors = mean(cors, na.rm = T)) %>%
-              ungroup()
-
-load("model_output/m1_var.RData")
-mrna_var_df = var_df %>% mutate(pop = "m1")
-
-load("model_output/m2_var.RData")
-var_df = var_df %>% mutate(pop = "m2")
-mrna_var_df = rbind(mrna_var_df, var_df)
-
-mrna_var_df = mrna_var_df %>%
-              dplyr::group_by(UNIPROT) %>%
-              dplyr::summarise(av_var = mean(obs_var))
-
-load("model_output/p1_var.RData")
-prot_var_df = var_df %>% mutate(pop = "p1")
-
-load("model_output/p2_var.RData")
-var_df = var_df %>% mutate(pop = "p2")
-prot_var_df = rbind(prot_var_df, var_df)
-
-load("model_output/p4_var.RData")
-var_df = var_df %>% mutate(pop = "p4")
-prot_var_df = rbind(prot_var_df, var_df)
-
-prot_var_df = prot_var_df %>%
-              dplyr::group_by(UNIPROT) %>%
-              dplyr::summarise(av_var = mean(obs_var))
-
-# m = plot_across_clusters_var(mrna_var_df, cor_df_mrna, type = "mrna")
-# p = plot_across_clusters_var(prot_var_df, cor_df_prot, type = "protein")
-
-# m / p
-```
-
-```{r fig3, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20}
-mrna_color = colorspace::sequential_hcl(5, palette = "Plasma")[3]
-protein_color = colorspace::sequential_hcl(5, palette = "Viridis")[2]
-load("model_output/a_info.RData")
-a_info = a_info %>%
-  dplyr::group_by(pop_mrna, ct) %>%
-  dplyr::summarise(a_av = mean(a_mrna, na.rm = T))
-
-load("model_output/b_info.RData")
-b_info = b_info %>%
-  dplyr::group_by(pop_protein, ct) %>%
-  dplyr::summarise(b_av = mean(b_protein, na.rm = T))
-
-# p = plot_ct_effect(a_info, b_info, mrna_color = mrna_color, protein_color = protein_color)
-# p + ggtitle("Cell Type, Data Set Technical Effect")
-```
-
-## Significant Genes: Observed and Model Fit Values
-
-```{r fig4, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 50, results='asis'}
-# FIGURE 4: Evaluating posterior samples of mu and r
-mrna_colors = colorspace::sequential_hcl(5, palette = "Plasma")[3]
-protein_colors = colorspace::sequential_hcl(5, palette = "Viridis")[2]
-
-load("model_output/gene_res_centered_with3.RData")
-gene_res = gene_res 
-uni_select = gene_res %>% 
-  filter(significant == TRUE) %>%
-  pull(UNIPROT) %>% 
-  unique()
-
-load("model_output/observed_z.RData")
-load("model_output/kappa_info.RData")
-load("model_output/gamma_info.RData")
-
-p = list()
 for(i in 1:length(uni_select)){
- # colors_filter = rbind(mrna_colors, protein_colors[c(uni_select[i] %in% protein_pop1_z$UNIPROT, uni_select[i] %in% protein_pop2_z$UNIPROT, 
-   #                 uni_select[i] %in% protein_pop3_z$UNIPROT, uni_select[i] %in% protein_pop4_z$UNIPROT),])
- p[[i]] = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
-                       gene_res = gene_res, uni = uni_select[i], 
-                       clusters = clusters, mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
-                       mrna_color = mrna_colors, protein_color = protein_colors) +
-   xlab("")
-     # scale_color_manual(name = "", values = c(mrna_colors, protein_colors)) 
-}
+p2 = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z),
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z),
+                       gene_res = gene_res,
+                       mrna_ppc_z = mrna_ppc_z,
+                       protein_ppc_z = protein_ppc_z,
+                       uni = uni_select[i], clusters = clusters,
+                       mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
+                       mrna_color = mrna_colors, protein_color = protein_colors,
+                       mrna_ppc_color = mrna_ppc_colors, protein_ppc_color = protein_ppc_colors) &
+  theme(text = element_text(size = 60),
+        legend.position = "bottom")
 
-p
+  print(p2)
+}
 ```

@@ -40,7 +40,7 @@ $P_{g_kc}^d \overset{\triangle}{=}$ Average $\text{log}_2$ intensity for peptide
 
 $M_{gc}^d \sim$ Negative Binomial$(2^{\mu_{gc}} \gamma_{gd} a_{cd} ,\phi_d)$
 
-$P_{g_kc}^{d} \sim$ Normal$(s_g(\mu_{gc} + R_{gc}) + \kappa_{g, d} + b_{cd}, \sigma^2_d/n_{gc}^d + \tau_d^2)$
+$P_{g_kc}^{d} \sim$ Normal$(s_g(\mu_{gc} + R_{gc}) + \kappa_{g, d} + b_{cd}, \sigma^2_{gd})$
 
 Where, 
 
@@ -58,11 +58,7 @@ $b_{cd} \overset{\triangle}{=}$ Protein technical effect for cell type $c$, data
 
 $\phi_d \overset{\triangle}{=}$ mRNA overdispersion parameter for data set $d$.
 
-$\sigma_d^2 \overset{\triangle}{=}$ Protein variance parameter term for data set $d$.
-
-$\tau_d^2 \overset{\triangle}{=}$ Protein variance parameter term for data set $d$.
-
-$n_{gc}^d \overset{\triangle}{=}$ Number of cells observed for data set $d$, peptide $k$ associated with gene $g$ associated with cell type $c$
+$\sigma_{gd}^2 \overset{\triangle}{=}$ Protein variance parameter term for data set $d$ and protein $g$.
 
 ```{r fig2, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 15, cache = F}
 # FIGURE 2: Empirical Across Cluster Correlations
@@ -166,23 +162,23 @@ p / q +
 \newpage
 
 ```{r high, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 15, fig.height = 8, cache = F}
-load("model_output/gene_res_centered.RData")
+load("model_output_hs/gene_res_centered.RData")
 genes = c("P22087", "P17174")
 title_lab = c("High Variance, High Agreement", "High Variance, Low Agreement")
 p1 = plot_zscore_means_alone(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                             protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
+                             protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
                              gene_res = gene_res,
                              uni = genes[1], clusters = clusters, 
-                             mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
+                             mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
                              mrna_color = mrna_colors, protein_color = protein_colors, 
                              title_select = title_lab[1]) + 
   ylim(-2, 2)
 
 p2 = plot_zscore_means_alone(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                             protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
+                             protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z), 
                              gene_res = gene_res,
                              uni = genes[2], clusters = clusters, 
-                             mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
+                             mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
                              mrna_color = mrna_colors, protein_color = protein_colors, 
                              title_select = title_lab[2]) + 
   ylim(-2, 2)
@@ -202,14 +198,14 @@ p1 + p2 + plot_layout(guides = "collect") +
 ```{r fig3, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 5, fig.height = 6, cache = F}
 # FIGURE 3: Posterior Predictive Model Evaluations
 # load previously completed variance quantities
-load("model_output/mrna_ppc_var.RData")
+load("model_output_hs/mrna_ppc_var.RData")
 m1 = plot_mrna_ppc_variance(ppc_var_plot = mrna_variance_ppc, rescale = F)
 
-# load("model_output/protein_ppc_var.RData")
-# p1 = plot_protein_ppc_variance(ppc_var_plot = protein_variance_ppc)
+load("model_output_hs/protein_ppc_var.RData")
+p1 = plot_protein_ppc_variance(ppc_var_plot = protein_variance_ppc) + theme(legend.position = "none")
 
-load("model_output/ppc_cor.RData")
-mp = draw_ppc_correlation_density(ppc_cor_obj) #, mrna_df = "Pop1")
+load("model_output_hs/ppc_cor.RData")
+mp = draw_ppc_correlation_density(ppc_cor_obj, mrna_df = "Pop1")
 
 p = m1 / mp + plot_layout(guides = "collect") 
 p + plot_annotation(title = "Figure 4: Posterior Predictive and Observed Statistics",
@@ -219,6 +215,7 @@ p + plot_annotation(title = "Figure 4: Posterior Predictive and Observed Statist
         text = element_text(size = 12),
         axis.text = element_text(size = 12))
 ```
+
 \newpage
 
 ```{r fig4, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 20, fig.height = 20, cache = F}
@@ -227,36 +224,35 @@ m1 = plot_posterior_means(gene_res = gene_res) + theme(legend.position = "none",
                                                        text = element_text(size = 40),
                                                        axis.text = element_text(size = 40))
 
-load("model_output/sig_intervals.RData")
+load("model_output_hs/sig_intervals.RData")
 ct_select = "PTM"
 uni_select = "P68104"
-# uni_select = "P63241"
 p1 = plot_significant_intervals(sig_intervals = significant_intervals, gene_res = gene_res, 
                                 ct_select = ct_select, organism = "human", sig_color = "purple") + 
   theme(text = element_text(size = 40),
         axis.text = element_text(size = 40))
 
 load("processed_data/observed_z.RData")
-load("model_output/mrna_ppc_z.RData")
-load("model_output/protein_ppc_z.RData")
-mrna_ppc_z = mrna_ppc_z %>% 
-  dplyr::group_by(pop_mrna, ct) %>% 
-  dplyr::mutate(mrna_zscore = mrna_zscore - mean(mrna_zscore, na.rm = T))
-protein_ppc_z = protein_ppc_z %>% 
-  dplyr::group_by(pop_protein, ct) %>% 
-  dplyr::mutate(protein_zscore = protein_zscore - mean(protein_zscore, na.rm = T))
+load("model_output_hs/mrna_ppc_z.RData")
+load("model_output_hs/protein_ppc_z.RData")
+# mrna_ppc_z = mrna_ppc_z %>%
+#   dplyr::group_by(pop_mrna, ct) %>%
+#   dplyr::mutate(mrna_zscore = mrna_zscore - mean(mrna_zscore, na.rm = T))
+# protein_ppc_z = protein_ppc_z %>%
+#   dplyr::group_by(pop_protein, ct) %>%
+#   dplyr::mutate(protein_zscore = protein_zscore - mean(protein_zscore, na.rm = T))
 
-p2 = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z), 
-                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop4_z), 
-                       gene_res = gene_res, 
+p2 = plot_zscore_means(mrna_z = list(mrna_pop1_z, mrna_pop2_z),
+                       protein_z = list(protein_pop1_z, protein_pop2_z, protein_pop3_z, protein_pop4_z),
+                       gene_res = gene_res,
                        mrna_ppc_z = mrna_ppc_z,
                        protein_ppc_z = protein_ppc_z,
-                       uni = uni_select, clusters = clusters, 
-                       mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop4"),
+                       uni = uni_select, clusters = clusters,
+                       mrna_pop_label = c("Pop1", "Pop2"), protein_pop_label = c("Pop1", "Pop2", "Pop3", "Pop4"),
                        mrna_color = mrna_colors, protein_color = protein_colors,
-                       mrna_ppc_color = mrna_ppc_colors, protein_ppc_color = protein_ppc_colors) 
+                       mrna_ppc_color = mrna_ppc_colors, protein_ppc_color = protein_ppc_colors)
 
-load("model_output/cor_comparison.RData")
+load("model_output_hs/cor_comparison.RData")
 mp = plot_correlation_comparison_med(cor_comparison = cor_comparison, gene_res = gene_res) 
 
 design = "
@@ -275,10 +271,10 @@ p = m1 /
                 # panel.margin = unit(0, "cm"),
                 # legend.key.size = unit(legend_size, "cm"),
                 # legend.position = "bottom") | 
-    wrap_elements(full = p2 & theme(plot.title = element_text(hjust = 0.5),
-                                    text = element_text(size = 40), 
-                                    legend.key.size = unit(2, "cm"),
-                                    legend.position = "bottom")) + 
+   wrap_elements(full = p2 & theme(plot.title = element_text(hjust = 0.5),
+                                   text = element_text(size = 40),
+                                   legend.key.size = unit(2, "cm"),
+                                   legend.position = "bottom")) +
   plot_layout(guides = "collect")
 p + 
   plot_annotation(tag_levels = list(c("A", "", "B", "", "C")),
@@ -294,21 +290,21 @@ p +
 \newpage
 
 ```{r fig5, echo = FALSE, warning = FALSE, message = FALSE, fig.width = 35, fig.height = 40, eval = T, cache = F}
-load("model_output/go_test_results_centered.RData")
+load("model_output_hs/go_test_results_centered.RData")
 
-GO_heatmap = c("GO:0035686", "GO:0097513", "GO:0051414",
-               "GO:0030020", "GO:0030317", "GO:0045071", 
-               "GO:0071230", "GO:0007286", "GO:0000027", "GO:0098641")
+# GO_heatmap = c("GO:0035686", "GO:0097513", "GO:0051414",
+#                "GO:0030020", "GO:0030317", "GO:0045071", 
+#                "GO:0071230", "GO:0007286", "GO:0000027", "GO:0098641")
 
-GO_ptm = c("GO:0032870", "GO:0030020", "GO:0030317", "GO:0045071", "GO:0071230")
-# "GO:0050810",  "GO:0051414",
+GO_heatmap = c("GO:0035686", "GO:0030317", "GO:0005853", "GO:0030317", "GO:0035686",
+               "GO:0090131", "GO:0071230", "GO:0042788", "GO:0048407", "GO:0090131")
 
-# GO_ptm = c("GO:0030317", "GO:0006614", "GO:0045071", "GO:0006939", "GO:0032870")
-# GO_spc = c("GO:0051321", "GO:0000027", "GO:0022627", "GO:0032870", "GO:0048407")
 
-GO_spg = c("GO:0030048", "GO:0030240", "GO:0035686", "GO:0097513", "GO:0051414")
-# # "GO:0050810", "GO:0032870",
-
+GO_ec = c("GO:0008307", "GO:0006614", "GO:0006414", "GO:0031526", "GO:0015935")
+GO_ptm = c("GO:0007286", "GO:0030020", "GO:0030317", "GO:0061631", "GO:0071230")
+GO_lc = c("GO:0007018", "GO:0007286", "GO:0001568", "GO:0030020", "GO:0002181")
+GO_spg = c("GO:0001568", "GO:0030048", "GO:0030240", "GO:0001568", "GO:0003009")
+GO_st = c("GO:0002080", "GO:0003777", "GO:0007254", "GO:0048240", "GO:0097228")
 #######################
 b = plot_go_heatmap(test_res, go_select = GO_heatmap) + 
   theme(text = element_text(size = text_size_sub),
@@ -318,13 +314,13 @@ b = plot_go_heatmap(test_res, go_select = GO_heatmap) +
 
 celltype_title = c("Endothelial", "Peritubular Myoid", "Leydig", "Spermatagonia", "Spermatocyte", "Spermatid")
 
-load(paste0("model_output/GO_dat_", clusters[2], ".RData"))
-d = plot_ticks2(GO_dat = GO_dat, gene_res = gene_res, GO_list = GO_ptm,
-                    celltype = clusters[2], celltype_title = celltype_title[2]) 
+load(paste0("model_output_hs/GO_dat_", clusters[3], ".RData"))
+d = plot_ticks2(GO_dat = GO_dat, gene_res = gene_res, GO_list = GO_lc,
+                    celltype = clusters[3], celltype_title = celltype_title[3]) 
 
-load(paste0("model_output/GO_dat_", clusters[4], ".RData"))
-f = plot_ticks2(GO_dat = GO_dat, gene_res = gene_res, GO_list = GO_spg,
-                    celltype = clusters[4], celltype_title = celltype_title[4]) 
+load(paste0("model_output_hs/GO_dat_", clusters[6], ".RData"))
+f = plot_ticks2(GO_dat = GO_dat, gene_res = gene_res, GO_list = GO_st,
+                    celltype = clusters[6], celltype_title = celltype_title[6]) 
 
 design <- "
   AAABCCCD

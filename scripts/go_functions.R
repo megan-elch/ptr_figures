@@ -1,6 +1,96 @@
-# function to run go testing
+run_go_test_means = function(posterior_draws, organism = "human", min_size = 1, max_size = 150, threshold = 0.01){
+  UNIPROT_in = unique(posterior_draws$UNIPROT)
+
+  if(organism == "human"){
+    # recover go groups associated with proteins fit in model
+    GO_info = AnnotationDbi::select(org.Hs.eg.db, keys = unique(posterior_draws$UNIPROT), keytype = "UNIPROT", columns = "GO") %>%
+      dplyr::select(-c(EVIDENCE, ONTOLOGY)) %>%
+      distinct(.keep_all = TRUE)
+
+    # recover all proteins associated with present go groups
+    GO_info2 = AnnotationDbi::select(org.Hs.eg.db, keys = unique(GO_info$GO), keytype = "GO", columns = "UNIPROT") %>%
+      dplyr::group_by(GO) %>%
+      dplyr::summarise(total_terms = length(unique(UNIPROT)),
+                       nd = length(unique(intersect(posterior_draws$UNIPROT, UNIPROT)))) %>%
+      ungroup()
+  }
+
+  if(organism == "mouse"){
+    # recover go groups associated with proteins fit in model
+    GO_info = AnnotationDbi::select(org.Mm.eg.db, keys = unique(posterior_draws$UNIPROT), keytype = "UNIPROT", columns = "GO") %>%
+      dplyr::select(-c(EVIDENCE, ONTOLOGY)) %>%
+      distinct(.keep_all = TRUE)
+
+    # recover all proteins associated with present go groups
+    GO_info2 = AnnotationDbi::select(org.Mm.eg.db, keys = unique(GO_info$GO), keytype = "GO", columns = "UNIPROT") %>%
+      dplyr::group_by(GO) %>%
+      dplyr::summarise(total_terms = length(unique(UNIPROT)),
+                       nd = length(unique(intersect(posterior_draws$UNIPROT, UNIPROT)))) %>%
+      ungroup()
+  }
+
+  # recover go "terms" associated with groups (more detailed labels)
+  GO_tab = AnnotationDbi::select(GO.db, keys = unique(GO_info$GO), keytype = "GOID", columns = "TERM") %>%
+    ungroup() %>%
+    dplyr::select(GOID, TERM) %>%
+    distinct(.keep_all = TRUE)
+
+  # combine previous information
+  GO_info = GO_info %>%
+    merge(GO_tab, by.x = "GO", by.y = "GOID") %>%
+    merge(GO_info2)
+  rm(list = c("GO_tab", "GO_info2"))
+
+  # filter go groups by total number of genes and number of genes present in data
+  GO_info = GO_info %>%
+    filter(total_terms < max_size, nd > min_size)
+
+  # combine go information with posterior draws for later testing
+  posterior_draws_go = posterior_draws %>%
+    base::merge(GO_info, by = "UNIPROT") %>%
+    na.omit()
+
+  # record size information
+  size_info = posterior_draws_go %>%
+    dplyr::group_by(GO) %>%
+    dplyr::summarise(total_terms = unique(total_terms),
+                     nd = unique(nd))
+
+  # run test:
+  test_res = posterior_draws_go %>%
+    dplyr::group_by(.iteration, .chain, GO) %>% # record average across genes not associated with each group
+    dplyr::mutate(r_group = mean(r, na.rm = T)) %>%
+    ungroup() %>%
+    dplyr::mutate(r = r - r_group) %>%
+    dplyr::group_by(.iteration, .chain, GO, ct) %>%
+    dplyr::summarise(r_mean = mean(r, na.rm = T), # compute sample average across genes for each group, posterior draw
+                     mu_mean = mean(mu, na.rm = T),
+                     prot_mean = mean(prot, na.rm = T),
+                     TERM = unique(TERM)) %>%
+    ungroup() %>%
+    dplyr::group_by(GO, ct) %>%
+    dplyr::summarise(TERM = unique(TERM),
+                     r_av = mean(r_mean, na.rm = T), # average r in group
+                     mu_av = mean(mu_mean, na.rm = T), # average mu in group
+                     prot_av = mean(prot_mean, na.rm = T), # average mu + r in group
+                     r_lwr = quantile(r_mean, 0.025, na.rm = T), # 95 pct interval r
+                     r_med = median(r_mean, na.rm = T),
+                     r_upr = quantile(r_mean, 0.975, na.rm = T),
+                     p_r = ifelse(mean(r_mean < 0) <= 1 - mean(r_mean < 0), mean(r_mean < 0), 1 - mean(r_mean < 0)),
+                     significant = !(r_lwr < 0 & r_upr > 0)) %>%
+    ungroup() %>%
+    merge(size_info) %>%
+    dplyr::group_by(ct) %>%
+    arrange(p_r, .by_group = T) %>% # compute expected proportion of false discoveries for r, mu, mu + r
+    dplyr::mutate(fdr = cummean(p_r[order(p_r)]), # expected proportion
+                  significant_fdr = fdr <= threshold) %>%
+    ungroup()
+
+  list(posterior_draws_go = posterior_draws_go, test_res = test_res)
+}
+
 run_go_test = function(posterior_draws, organism = "human", min_size = 1, max_size = 150, sg1 = 0.01, sg2 = 0.001){
-  UNIPROT_in = unique(posterior_draws$UNIPROT) # use genes present in model
+  UNIPROT_in = unique(posterior_draws$UNIPROT)
 
   if(organism == "human"){
     # recover go groups associated with proteins fit in model
@@ -92,17 +182,17 @@ run_go_test = function(posterior_draws, organism = "human", min_size = 1, max_si
     distinct(.keep_all = TRUE) %>%
     dplyr::group_by(ct) %>%
     arrange(prt, .by_group = T) %>% # compute expected proportion of false discoveries for r, mu, mu + r
-    dplyr::mutate(fdr = cummean(prt[order(prt)]), # expected proportion of false discoveries
+    dplyr::mutate(fdr = cummean(prt[order(prt)]), # expected proportion
                   sig_rt = fdr <= sg1, # expected proportion < threshold 1
                   sig_rt2 = fdr <= sg2) %>% # expected proportion < threshold 2
     arrange(prm, .by_group = T) %>%
-    dplyr::mutate(fdr_m = cummean(prm[order(prm)]), # expected proportion of false discoveries for mu
-                  sig_m = fdr_m <= sg1, # expected proportion < threshold 1
-                  sig_m2 = fdr_m <= sg2) %>% # expected proportion < threshold 2
+    dplyr::mutate(fdr_m = cummean(prm[order(prm)]),
+                  sig_m = fdr_m <= sg1,
+                  sig_m2 = fdr_m <= sg2) %>%
     arrange(prp, .by_group = T) %>%
-    dplyr::mutate(fdr_p = cummean(prp[order(prp)]), # expected proportion of false discoveries for mu + R
-                  sig_p = fdr_p <= sg1, # expected proportion < threshold 1
-                  sig_p2 = fdr_p <= sg2) # expected proportion < threshold 2
+    dplyr::mutate(fdr_p = cummean(prp[order(prp)]),
+                  sig_p = fdr_p <= sg1,
+                  sig_p2 = fdr_p <= sg2)
 
   list(posterior_draws_go = posterior_draws_go, test_res = test_res)
 }
@@ -150,6 +240,41 @@ go_summary_table = function(test_res){
   return(df)
 }
 
+# go sig table 1 for test type 1
+compute_ticks_draws = function(posterior_draws_go, test_res, celltype){
+  posterior_draws_go = posterior_draws_go %>%
+    dplyr::group_by(.iteration, .chain, GO) %>% # record average across genes not associated with each group
+    dplyr::mutate(r_group = mean(r, na.rm = T)) %>%
+    ungroup() %>%
+    dplyr::mutate(param = r - r_group) %>%
+    # dplyr::mutate(param = r) %>%
+    dplyr::filter(ct == celltype)
+
+  go = test_res %>%
+    dplyr::filter(significant == T) %>%
+    ungroup() %>%
+    dplyr::select(ct, GO, fdr, r_lwr, r_upr) %>%
+    distinct(.keep_all = TRUE)
+
+
+  GO_dat = posterior_draws_go %>%
+    merge(go) %>%
+    dplyr::group_by(UNIPROT) %>%
+    dplyr::summarise(param_mean = mean(param),
+                     GO = unique(GO),
+                     TERM = unique(TERM),
+                     ct = celltype,
+                     prt = mean(fdr),
+                     r_lwr = mean(r_lwr),
+                     r_upr = mean(r_upr)) %>%
+    ungroup() %>%
+    dplyr::group_by(GO) %>%
+    dplyr::mutate(go_mean = mean(param_mean),
+                  prt = mean(prt)) %>%
+    ungroup()
+  return(GO_dat)
+}
+
 # return ggplot with heatmap showing sample average of posterior means for each group
 plot_go_heatmap = function(test_res, go_select = NULL){
   if(is.null(go_select)){
@@ -180,22 +305,19 @@ plot_go_heatmap = function(test_res, go_select = NULL){
 
   # merge ordering for hierarchical clustering
   test_res = test_res %>% merge(go_order, by = "GO") %>% merge(ct_order, by = "ct")
-  test_res = test_res %>% arrange(GO_fct)
+  test_res = test_res %>% arrange(GO_fct) %>% mutate(param_mean = r_av)
 
   # generate heatmap
-  g = ggplot(data = test_res, mapping = aes(x = ct, y = forcats::fct_inorder(TERM), fill = r_av)) +
+  g = ggplot(data = test_res, mapping = aes(y = ct, x = forcats::fct_inorder(TERM), fill = param_mean)) +
     geom_tile() +
+    xlab("") +
     ylab("") +
-    xlab("Cell Type") +
-    scale_y_discrete(labels = function(y) str_wrap(y, width = 30), position = "right") +
-    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
-                         midpoint = 0, limits = c(-1.5, 1.5), oob = scales::squish,
-                         na.value = NA, name = "")
-  theme(axis.text = element_text(size = 60),
-        axis.title = element_text(size = 60),
-        legend.key.size = unit(1, "cm"),
-        legend.position = "none",
-        panel.background = element_rect(fill = 'white', color = "slategray4"),
+    scale_x_discrete(labels = function(x) str_wrap(x, width = 22)) +
+    scale_fill_gradientn(colors = c("darkblue", "blue", "white", "red", "darkred"),
+                         limits = c(-1.25, 1.25),
+                          oob = scales::squish,
+                          na.value = NA, name = "", labels = c(-1, 0.5, 0, 0.5, 1)) +
+  theme(panel.background = element_rect(fill = 'white', color = "slategray4"),
         panel.grid.major = element_line(color = 'slategray2'),
         panel.grid.minor = element_line(color = 'slategray1'))
   return(g)
@@ -360,7 +482,7 @@ plot_ticks = function(GO_dat, gene_res,
     xlab(paste(x_title, celltype_title)) +
     ylab("GO Term") +
     xlim(-1*(lim_val), (lim_val)) +
-    scale_color_gradient2(low = "blue", mid = "gray", high = "red",
+    scale_color_gradient2(low = "blue", mid = "white", high = "red",
                           midpoint = 0, limits = c(-1.5, 1.5), oob = scales::squish,
                           na.value = NA, name = "") +
     scale_y_discrete(labels = function(y) str_wrap(y, width = 20)) +
@@ -378,12 +500,12 @@ plot_ticks = function(GO_dat, gene_res,
   # marginal table displaying posterior probability associated with each group
   tbl_df = GO_dat %>% dplyr::group_by(TERM_factor) %>% dplyr::summarise(Posterior_Probability = formatC(prt, format = "e", digits = 2)) %>% arrange(TERM_factor)
   tbl = ggplot(tbl_df, aes(y = TERM_factor, x = 1)) +
-    geom_text(mapping = aes(x = 1, y = TERM_factor, label = Posterior_Probability), size = 15) +
+    geom_text(mapping = aes(x = 1, y = TERM_factor, label = Posterior_Probability), size = 13) +
     xlab("") +
     ylab("") +
     theme(panel.background = element_rect(fill = 'white', color = "white"),
           plot.title = element_text(hjust = 0.5),
-          text = element_text(size = 15),
+          text = element_text(size = 13),
           axis.text.y = element_blank(),
           axis.text.x = element_blank(),
           panel.grid.major = element_line(color = 'white'),
@@ -393,7 +515,7 @@ plot_ticks = function(GO_dat, gene_res,
 
   # draw title panel for table
   tbl_fill = ggplot() +
-    geom_text(mapping = aes(x = 1, y = 1, label = paste("Posterior", "Probability", sep = "\n")), size = 15) +
+    geom_text(mapping = aes(x = 1, y = 1, label = paste("Posterior", "Probability", sep = "\n")), size = 30) +
     xlab("") +
     ylab("") +
     theme(panel.background = element_rect(fill = 'white', color = "white"),
@@ -421,3 +543,104 @@ plot_ticks = function(GO_dat, gene_res,
 
   return(b)
 }
+
+# draw tick mark plot displaying posterior mean for genes associated with selected significant go groups
+plot_ticks2 = function(GO_dat, gene_res,
+                      n = 10, seed_id = 15,
+                      GO_list = NULL, celltype, celltype_title){
+
+  plot_param = "r" # use ratio as plotting parameter
+  x_title = "rPTR" # axis label
+
+  if(is.null(GO_list)){
+    set.seed(seed_id)
+    GO_list = GO_dat %>%
+      dplyr::group_by(GO) %>%
+      dplyr::summarise(go_av = mean(param_mean, na.rm = T),
+                       ng = length(unique(UNIPROT))) %>%
+      ungroup() %>%
+      dplyr::mutate(ng_group = ntile(ng, 2)) %>%
+      filter(ng_group == 2) %>%
+      dplyr::mutate(av_group = ntile(go_av, 4)) %>%
+      dplyr::group_by(av_group) %>%
+      dplyr::sample_n(size = 2) %>%
+      ungroup() %>%
+      pull(GO)
+  }
+
+  GO_dat = GO_dat %>%
+    dplyr::filter(GO %in% GO_list) %>%
+    dplyr::mutate(TERM_factor = fct_reorder(TERM, go_mean, .desc = TRUE))
+
+  # use min and max across genes associated with all groups to auto-set axis limits
+  min_check = min(GO_dat$param_mean[is.finite(GO_dat$param_mean)], na.rm = T)
+  max_check = max(GO_dat$param_mean[is.finite(GO_dat$param_mean)], na.rm = T)
+  lim_val = max(abs(min_check), abs(max_check))
+
+  # draw tick mark plot
+  bb =  ggplot() +
+    geom_point(data = GO_dat, mapping = aes(x = param_mean, y = TERM_factor, color = param_mean, group = UNIPROT),
+               size = 20, stroke = 20, shape="|", alpha = 1) +
+    geom_point(data = GO_dat, mapping = aes(x = go_mean, y = TERM_factor, color = go_mean),
+               size = 10, stroke = 3, shape = 4) +
+    geom_vline(xintercept = 0, color = "gray", linetype = "dashed") +
+    xlab(paste(celltype_title, x_title)) +
+    ylab("") +
+    xlim(-1*(lim_val), (lim_val)) +
+    scale_color_gradientn(colors = c("darkblue", "blue", "white", "red", "darkred"),
+                          limits = c(-1.25, 1.25),
+                         oob = scales::squish,
+                         na.value = NA, name = "", guide = "none") +
+    scale_y_discrete(labels = function(y) str_wrap(y, width = 21)) +
+    theme(panel.background = element_rect(fill = 'white', color = "white"),
+          legend.position = "bottom",
+          legend.key.size = unit(3, "cm"),
+          panel.grid.major = element_line(color = 'slategray1'),
+          panel.grid.minor = element_line(color = 'white'))
+
+  # marginal table displaying posterior probability associated with each group
+  tbl_df = GO_dat %>% dplyr::group_by(TERM_factor) %>% dplyr::summarise(Posterior_Probability = formatC(unique(prt), format = "e", digits = 2)) %>% arrange(TERM_factor)
+  tbl = ggplot(tbl_df, aes(y = TERM_factor, x = 1)) +
+    geom_text(mapping = aes(x = 1, y = TERM_factor, label = Posterior_Probability), size = 12) +
+    xlab("") +
+    ylab("") +
+    theme(panel.background = element_rect(fill = 'white', color = "white"),
+          plot.title = element_text(hjust = 0.5),
+          axis.text.y = element_blank(),
+          axis.text.x = element_blank(),
+          panel.grid.major = element_line(color = 'white'),
+          panel.grid.minor = element_line(color = 'white'),
+          axis.ticks.x = element_blank(),
+          axis.ticks.y = element_blank())
+
+  # draw title panel for table
+  tbl_fill = ggplot() +
+    geom_text(mapping = aes(x = 1, y = 1, label = paste("Posterior", "Probability", sep = "\n")), size = 10) +
+    xlab("") +
+    ylab("") +
+    theme(panel.background = element_rect(fill = 'white', color = "white"),
+          axis.text.y = element_blank(),
+          axis.text.x = element_blank(),
+          panel.grid.major = element_line(color = 'white'),
+          panel.grid.minor = element_line(color = 'white'),
+          axis.ticks.x = element_blank(),
+          axis.ticks.y = element_blank())
+
+  # marignal density plot across all genes
+  bd <- ggplot(gene_res) +
+    geom_density(aes(x = r_av), fill = "gray47", alpha = 0.1) +
+    xlab("") +
+    ylab("") +
+    xlim(-1*(lim_val), (lim_val)) +
+    theme(panel.background = element_rect(fill = 'white', color = "white"),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          panel.grid.major = element_line(color = 'white'),
+          panel.grid.minor = element_line(color = 'white'),
+          axis.ticks.x = element_blank())
+
+  b = (((bd / bb) + plot_layout(height = c(1, 3))) | ((tbl_fill / tbl) + plot_layout(height = c(1, 3)))) + plot_layout(width = c(3, 1))
+
+  return(b)
+}
+
